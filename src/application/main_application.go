@@ -2,7 +2,7 @@ package application
 
 import (
 	"flag"
-	"github.com/pipe-network/signaling-server/interface/controllers"
+	"github.com/pipe-network/signaling-server/src/interface/controllers"
 	"log"
 	"net/http"
 )

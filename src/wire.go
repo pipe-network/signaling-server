@@ -1,6 +1,6 @@
 //+build wireinject
 
-package signaling_server
+package src
 
 import (
 	"github.com/google/wire"

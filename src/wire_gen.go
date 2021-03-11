@@ -3,13 +3,13 @@
 //go:generate go run github.com/google/wire/cmd/wire
 //+build !wireinject
 
-package signaling_server
+package src
 
 import (
 	"github.com/google/wire"
-	"github.com/pipe-network/signaling-server/application"
-	"github.com/pipe-network/signaling-server/infrastructure/providers"
-	"github.com/pipe-network/signaling-server/interface/controllers"
+	"github.com/pipe-network/signaling-server/src/application"
+	"github.com/pipe-network/signaling-server/src/infrastructure/providers"
+	"github.com/pipe-network/signaling-server/src/interface/controllers"
 )
 
 // Injectors from wire.go:
