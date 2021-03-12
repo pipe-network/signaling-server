@@ -3,20 +3,22 @@
 //go:generate go run github.com/google/wire/cmd/wire
 //+build !wireinject
 
-package src
+package signaling_server
 
 import (
 	"github.com/google/wire"
-	"github.com/pipe-network/signaling-server/src/application"
-	"github.com/pipe-network/signaling-server/src/infrastructure/providers"
-	"github.com/pipe-network/signaling-server/src/interface/controllers"
+	"github.com/pipe-network/signaling-server/application"
+	"github.com/pipe-network/signaling-server/application/services"
+	"github.com/pipe-network/signaling-server/infrastructure/providers"
+	"github.com/pipe-network/signaling-server/interface/controllers"
 )
 
 // Injectors from wire.go:
 
 func InitializeMainApplication() application.MainApplication {
 	upgrader := providers.ProvideUpgrader()
-	signalingController := controllers.NewSignalingController(upgrader)
+	saltyRTCService := services.NewSaltyRTCService()
+	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
 	mainApplication := application.NewMainApplication(signalingController)
 	return mainApplication
 }

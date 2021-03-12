@@ -2,7 +2,7 @@ package application
 
 import (
 	"flag"
-	"github.com/pipe-network/signaling-server/src/interface/controllers"
+	"github.com/pipe-network/signaling-server/interface/controllers"
 	"log"
 	"net/http"
 )
@@ -23,8 +23,15 @@ func (a *MainApplication) Run() {
 	address := a.parseFlags()
 	log.SetFlags(0)
 	http.HandleFunc("/", a.SignallingController.WebSocket)
-	log.Printf("Running on: http://%s", address)
-	log.Fatal(http.ListenAndServe(address, nil))
+	log.Printf("Running on: https://%s", address)
+	log.Fatal(
+		http.ListenAndServe(
+			address,
+			//"server.crt",
+			//"server.key",
+			nil,
+		),
+	)
 }
 
 func (a MainApplication) parseFlags() string {

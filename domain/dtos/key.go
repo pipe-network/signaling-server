@@ -27,3 +27,7 @@ func FromHex(hexKey string) (*Key, error) {
 	return &key, err
 
 }
+
+func (k Key) Bytes() [32]byte {
+	return k
+}
