@@ -1,6 +1,7 @@
 package values
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math/rand"
 )
@@ -14,6 +15,21 @@ func NewSequenceNumber() (*SequenceNumber, error) {
 	return &sequenceNumber, nil
 }
 
-func (a SequenceNumber) Int() int {
-	return int(binary.BigEndian.Uint32(a[:]))
+func SequenceNumberFromInt(value uint32) SequenceNumber {
+	var byteValue [4]byte
+	binary.BigEndian.PutUint32(byteValue[:], value)
+	return byteValue
+}
+
+func (n SequenceNumber) Int() uint32 {
+	return binary.BigEndian.Uint32(n[:])
+}
+
+func (n SequenceNumber) Empty() bool {
+	emptySequenceNumber := SequenceNumber{}
+	return bytes.Equal(n[:], emptySequenceNumber[:])
+}
+
+func (n SequenceNumber) Equal(sequenceNumber SequenceNumber) bool {
+	return bytes.Equal(n[:], sequenceNumber[:])
 }

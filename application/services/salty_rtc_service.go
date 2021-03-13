@@ -9,6 +9,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	NotAllowedToRelay = func(destinationAddress values.Address) error {
+		return errors.New(fmt.Sprintf("not allowed to relay messages to %x", destinationAddress))
+	}
+	IdentitiesDoNotMatch = func(clientAddress, sourceAddress values.Address) error {
+		return errors.New(
+			fmt.Sprintf("identities do not match, expected %x, got %x", clientAddress, sourceAddress),
+		)
+	}
+	InvalidCookie         = errors.New("invalid cookie")
+	InvalidSequenceNumber = errors.New("invalid sequence number")
+)
+
 type ISaltyRTCService interface {
 	OnClientConnect(initiatorsPublicKey values.Key, connection *websocket.Conn) (*models.Client, error)
 	OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error
@@ -62,6 +75,11 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	dataBytes = message[values.NonceByteLength:]
 
 	nonce := s.signalingMessageService.NonceFromBytes(nonceBytes)
+	err := s.validateNonce(nonce, client)
+	if err != nil {
+		return err
+	}
+
 	if nonce.Destination == values.ServerAddress {
 		clientAuthMessage, err := s.signalingMessageService.DecodeClientAuthMessageFromBytes(
 			dataBytes,
@@ -91,6 +109,34 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 
 	return nil
 
+}
+
+func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Client) error {
+	isAddressedToServer := nonce.Destination == values.ServerAddress
+
+	// Validate destination address
+	if !isAddressedToServer && client.IsP2PAllowed(nonce.Destination) {
+		return NotAllowedToRelay(nonce.Destination)
+	}
+
+	// Validate source address
+	if nonce.Source != client.Address {
+		return IdentitiesDoNotMatch(client.Address, nonce.Source)
+	}
+
+	if isAddressedToServer {
+		if !client.IsCookieValid(nonce.Cookie) {
+			return InvalidCookie
+		}
+		if !client.IsCombinedSequenceNumberValid(nonce.SequenceNumber, nonce.OverflowNumber) {
+			return InvalidSequenceNumber
+		}
+		err := client.IncrementIncomingCombinedSequenceNumber()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *SaltyRTCService) onClientAuthMessage(

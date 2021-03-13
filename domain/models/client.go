@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"crypto/rand"
 	"github.com/gorilla/websocket"
 	"github.com/pipe-network/signaling-server/domain/values"
@@ -9,12 +10,16 @@ import (
 )
 
 type Client struct {
-	Address           values.Address
-	SessionPrivateKey values.Key
-	SessionPublicKey  values.Key
-	Cookie            values.Cookie
-	SequenceNumber    values.SequenceNumber
-	OverflowNumber    values.OverflowNumber
+	Address                values.Address
+	SessionPrivateKey      values.Key
+	SessionPublicKey       values.Key
+	OutgoingCookie         values.Cookie
+	OutgoingSequenceNumber values.SequenceNumber
+	OutgoingOverflowNumber values.OverflowNumber
+
+	IncomingCookie         values.Cookie
+	IncomingSequenceNumber values.SequenceNumber
+	IncomingOverflowNumber values.OverflowNumber
 
 	state values.ClientState
 
@@ -41,15 +46,86 @@ func NewClient(
 	}
 
 	return &Client{
-		Address:           values.UnassignedAddress,
-		SessionPrivateKey: *sessionPrivateKey,
-		SessionPublicKey:  *sessionPublicKey,
-		Cookie:            *cookie,
-		SequenceNumber:    *sequenceNumber,
-		OverflowNumber:    values.NewOverflowNumber(),
-		connection:        connection,
-		connectionMutex:   &sync.Mutex{},
+		Address:                values.UnassignedAddress,
+		SessionPrivateKey:      *sessionPrivateKey,
+		SessionPublicKey:       *sessionPublicKey,
+		OutgoingCookie:         *cookie,
+		OutgoingSequenceNumber: *sequenceNumber,
+		OutgoingOverflowNumber: values.NewOverflowNumber(),
+		connection:             connection,
+		connectionMutex:        &sync.Mutex{},
 	}, nil
+}
+
+func (c *Client) OutgoingCombinedSequenceNumber() values.CombinedSequenceNumber {
+	return values.NewCombinedSequenceNumber(c.OutgoingSequenceNumber, c.OutgoingOverflowNumber)
+}
+
+func (c *Client) IncomingCombinedSequenceNumber() values.CombinedSequenceNumber {
+	return values.NewCombinedSequenceNumber(c.IncomingSequenceNumber, c.IncomingOverflowNumber)
+}
+
+func (c *Client) IsP2PAllowed(destinationAddress values.Address) bool {
+	return c.state == values.Authenticated && c.Address != destinationAddress
+}
+
+func (c *Client) IsCookieValid(cookie values.Cookie) bool {
+	emptyCookie := values.Cookie{}
+	if bytes.Equal(c.IncomingCookie[:], emptyCookie[:]) {
+		if bytes.Equal(c.OutgoingCookie[:], cookie[:]) {
+			return false
+		}
+
+		c.IncomingCookie = cookie
+	} else {
+		if !bytes.Equal(c.IncomingCookie[:], cookie[:]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Client) IsCombinedSequenceNumberValid(
+	sequenceNumber values.SequenceNumber,
+	overflowNumber values.OverflowNumber,
+) bool {
+	combinedSequenceNumber := values.NewCombinedSequenceNumber(sequenceNumber, overflowNumber)
+
+	if c.IncomingCombinedSequenceNumber().Empty() {
+		if overflowNumber.Int() != 0 {
+			return false
+		}
+		c.IncomingSequenceNumber = sequenceNumber
+		c.IncomingOverflowNumber = overflowNumber
+	}
+
+	if !combinedSequenceNumber.Equal(c.IncomingCombinedSequenceNumber()) {
+		return false
+	}
+
+	return true
+}
+
+func (c *Client) IncrementIncomingCombinedSequenceNumber() error {
+	incomingCombinedSequenceNumber := c.IncomingCombinedSequenceNumber()
+	incrementedIncomingCombinedSequenceNumber, err := incomingCombinedSequenceNumber.Increment()
+	if err != nil {
+		return err
+	}
+	c.IncomingSequenceNumber = incrementedIncomingCombinedSequenceNumber.SequenceNumber
+	c.IncomingOverflowNumber = incrementedIncomingCombinedSequenceNumber.OverflowNumber
+	return nil
+}
+
+func (c *Client) IncrementOutgoingCombinedSequenceNumber() error {
+	outgoingCombinedSequenceNumber := c.IncomingCombinedSequenceNumber()
+	incrementedOutgoingCombinedSequenceNumber, err := outgoingCombinedSequenceNumber.Increment()
+	if err != nil {
+		return err
+	}
+	c.IncomingSequenceNumber = incrementedOutgoingCombinedSequenceNumber.SequenceNumber
+	c.IncomingOverflowNumber = incrementedOutgoingCombinedSequenceNumber.OverflowNumber
+	return nil
 }
 
 func (c *Client) SendSignalingMessage(signalingMessage SignalingMessage) error {

@@ -32,11 +32,11 @@ func (n Nonce) Bytes() []byte {
 func (n Nonce) String() string {
 	return strings.Join(
 		[]string{
-			fmt.Sprintf("Cookie: %s", hex.EncodeToString(n.Cookie[:])),
-			fmt.Sprintf("Source: %s", strconv.Itoa(n.Source.Int())),
-			fmt.Sprintf("Destination: %s", strconv.Itoa(n.Destination.Int())),
-			fmt.Sprintf("OverflowNumber: %s", strconv.Itoa(n.OverflowNumber.Int())),
-			fmt.Sprintf("SequenceNumber: %s", strconv.Itoa(n.SequenceNumber.Int())),
+			fmt.Sprintf("OutgoingCookie: %s", hex.EncodeToString(n.Cookie[:])),
+			fmt.Sprintf("Source: %s", strconv.Itoa(int(n.Source.Int()))),
+			fmt.Sprintf("Destination: %s", strconv.Itoa(int(n.Destination.Int()))),
+			fmt.Sprintf("OutgoingOverflowNumber: %s", strconv.Itoa(int(n.OverflowNumber.Int()))),
+			fmt.Sprintf("OutgoingSequenceNumber: %s", strconv.Itoa(int(n.SequenceNumber.Int()))),
 		},
 		"|",
 	)

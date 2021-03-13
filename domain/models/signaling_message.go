@@ -17,11 +17,11 @@ type SignalingMessage struct {
 func NewSignalingMessage(client *Client, data values.TypedMessage) SignalingMessage {
 	return SignalingMessage{
 		Nonce: values.Nonce{
-			Cookie:         client.Cookie,
+			Cookie:         client.OutgoingCookie,
 			Source:         values.ServerAddress,
 			Destination:    client.Address,
-			SequenceNumber: client.SequenceNumber,
-			OverflowNumber: client.OverflowNumber,
+			SequenceNumber: client.OutgoingSequenceNumber,
+			OverflowNumber: client.OutgoingOverflowNumber,
 		},
 		Data: data,
 	}

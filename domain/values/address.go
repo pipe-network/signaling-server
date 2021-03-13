@@ -14,12 +14,12 @@ var (
 
 type Address [1]byte
 
-func (a Address) Int() int {
+func (a Address) Int() uint8 {
 	var value uint8
 	buf := bytes.NewBuffer(a[:])
 	err := binary.Read(buf, binary.BigEndian, &value)
 	if err != nil {
 		log.Fatalf("Decode failed: %s", err)
 	}
-	return int(value)
+	return value
 }
