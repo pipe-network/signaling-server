@@ -17,7 +17,8 @@ import (
 
 func InitializeMainApplication() application.MainApplication {
 	upgrader := providers.ProvideUpgrader()
-	saltyRTCService := services.NewSaltyRTCService()
+	signalingMessageService := services.NewSignalingMessageService()
+	saltyRTCService := services.NewSaltyRTCService(signalingMessageService)
 	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
 	mainApplication := application.NewMainApplication(signalingController)
 	return mainApplication

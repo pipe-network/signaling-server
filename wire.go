@@ -15,6 +15,8 @@ var Providers = wire.NewSet(providers.ProvideUpgrader)
 func InitializeMainApplication() application.MainApplication {
 	wire.Build(
 		Providers,
+		services.NewSignalingMessageService,
+		wire.Bind(new(services.ISignalingMessageService), new(*services.SignalingMessageService)),
 		services.NewSaltyRTCService,
 		controllers.NewSignalingController,
 		application.NewMainApplication,

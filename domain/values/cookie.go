@@ -1,4 +1,4 @@
-package dtos
+package values
 
 import "crypto/rand"
 

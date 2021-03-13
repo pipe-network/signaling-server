@@ -1,14 +1,16 @@
 package models
 
-import "github.com/pipe-network/signaling-server/domain/dtos"
+import (
+	"github.com/pipe-network/signaling-server/domain/values"
+)
 
 type Rooms struct {
-	rooms map[dtos.Key]*Room
+	rooms map[values.Key]*Room
 }
 
 func NewRooms() *Rooms {
 	return &Rooms{
-		rooms: map[dtos.Key]*Room{},
+		rooms: map[values.Key]*Room{},
 	}
 }
 
@@ -21,11 +23,11 @@ func (r *Rooms) AddRoom(room *Room) bool {
 	return true
 }
 
-func (r *Rooms) GetRoom(initiatorsPublicKey dtos.Key) *Room {
+func (r *Rooms) GetRoom(initiatorsPublicKey values.Key) *Room {
 	return r.rooms[initiatorsPublicKey]
 }
 
-func (r *Rooms) RemoveRoom(initiatorsPublicKey dtos.Key) bool {
+func (r *Rooms) RemoveRoom(initiatorsPublicKey values.Key) bool {
 	if _, ok := r.rooms[initiatorsPublicKey]; ok {
 		delete(r.rooms, initiatorsPublicKey)
 		return true

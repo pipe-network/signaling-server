@@ -1,4 +1,4 @@
-package dtos
+package values
 
 const (
 	ServerHello   MessageType = "server-hello"

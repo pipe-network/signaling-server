@@ -3,7 +3,7 @@ package controllers
 import (
 	"github.com/gorilla/websocket"
 	"github.com/pipe-network/signaling-server/application/services"
-	"github.com/pipe-network/signaling-server/domain/dtos"
+	"github.com/pipe-network/signaling-server/domain/values"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 	"path"
@@ -27,7 +27,7 @@ func NewSignalingController(
 func (c *SignalingController) WebSocket(w http.ResponseWriter, r *http.Request) {
 	var err error
 	initiatorsPublicKeyHex := path.Base(r.URL.Path)
-	initiatorsPublicKey, err := dtos.FromHex(initiatorsPublicKeyHex)
+	initiatorsPublicKey, err := values.FromHex(initiatorsPublicKeyHex)
 	if err != nil {
 		log.Error("fromHex:", err)
 		return
