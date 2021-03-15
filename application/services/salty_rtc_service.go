@@ -230,7 +230,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	client.MarkAsAuthenticated()
 
-	responderAddresses := []int{}
+	var responderAddresses []int
 	for _, responder := range room.Responders() {
 		responderAddresses = append(responderAddresses, int(responder.Address.Int()))
 	}
@@ -287,7 +287,7 @@ func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error 
 }
 
 func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
-	newResponderMessage := values.NewNewResponderMessage(responderClient.Address)
+	newResponderMessage := values.NewNewResponderMessage(int(responderClient.Address.Int()))
 	initiator := room.Initiator()
 	if initiator == nil {
 		return nil

@@ -44,12 +44,12 @@ type NewInitiatorMessage struct {
 
 type NewResponderMessage struct {
 	Message
-	ID Address `msgpack:"id"`
+	ID int `msgpack:"id"`
 }
 
 type DropResponderMessage struct {
 	Message
-	ID     Address   `msgpack:"id"`
+	ID     int       `msgpack:"id"`
 	Reason CloseCode `msgpack:"reason"`
 }
 
@@ -110,7 +110,7 @@ func NewNewInitiatorMessage() NewInitiatorMessage {
 	}
 }
 
-func NewNewResponderMessage(responderAddress Address) NewResponderMessage {
+func NewNewResponderMessage(responderAddress int) NewResponderMessage {
 	return NewResponderMessage{
 		Message: Message{Type: NewResponder},
 		ID:      responderAddress,
