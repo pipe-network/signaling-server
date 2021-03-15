@@ -5,21 +5,36 @@ package signaling_server
 import (
 	"github.com/google/wire"
 	"github.com/pipe-network/signaling-server/application"
+	"github.com/pipe-network/signaling-server/application/ports"
 	"github.com/pipe-network/signaling-server/application/services"
 	"github.com/pipe-network/signaling-server/infrastructure/providers"
+	"github.com/pipe-network/signaling-server/infrastructure/storages"
 	"github.com/pipe-network/signaling-server/interface/controllers"
 )
 
-var Providers = wire.NewSet(providers.ProvideUpgrader)
+var Providers = wire.NewSet(
+	providers.ProvideUpgrader,
+)
 
-func InitializeMainApplication() application.MainApplication {
-	wire.Build(
-		Providers,
-		services.NewSignalingMessageService,
-		wire.Bind(new(services.ISignalingMessageService), new(*services.SignalingMessageService)),
-		services.NewSaltyRTCService,
-		controllers.NewSignalingController,
-		application.NewMainApplication,
+var FlagProviders = wire.NewSet(
+	providers.ProvideServerAddress,
+	providers.ProvidePublicKeyPath,
+	providers.ProvidePrivateKeyPath,
+)
+
+func InitializeMainApplication() (application.MainApplication, error) {
+	panic(
+		wire.Build(
+			Providers,
+			FlagProviders,
+			services.NewSignalingMessageService,
+			storages.NewKeyPairLocalStorageAdapter,
+			services.NewSaltyRTCService,
+			controllers.NewSignalingController,
+			application.NewMainApplication,
+
+			wire.Bind(new(ports.KeyPairStoragePort), new(*storages.KeyPairLocalStorageAdapter)),
+			wire.Bind(new(services.ISignalingMessageService), new(*services.SignalingMessageService)),
+		),
 	)
-	return application.MainApplication{}
 }

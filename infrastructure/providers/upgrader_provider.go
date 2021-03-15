@@ -2,11 +2,8 @@ package providers
 
 import (
 	"github.com/gorilla/websocket"
+	"github.com/pipe-network/signaling-server/domain/values"
 	"net/http"
-)
-
-const (
-	SaltyRTCSubprotocol = "v1.saltyrtc.org"
 )
 
 func ProvideUpgrader() websocket.Upgrader {
@@ -15,7 +12,7 @@ func ProvideUpgrader() websocket.Upgrader {
 			return true
 		},
 		Subprotocols: []string{
-			SaltyRTCSubprotocol,
+			values.SaltyRTCSubprotocol,
 		},
 	}
 }

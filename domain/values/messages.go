@@ -1,5 +1,9 @@
 package values
 
+import (
+	"golang.org/x/crypto/nacl/box"
+)
+
 type TypedMessage interface {
 	MessageType() MessageType
 }
@@ -20,7 +24,7 @@ type ClientHelloMessage struct {
 
 type ClientAuthMessage struct {
 	Message
-	YourCookie   Key      `msgpack:"your_cookie"`
+	YourCookie   Cookie   `msgpack:"your_cookie"`
 	SubProtocols []string `msgpack:"subprotocols"`
 	PingInterval int      `msgpack:"ping_interval"`
 	YourKey      Key      `msgpack:"your_key"`
@@ -28,7 +32,7 @@ type ClientAuthMessage struct {
 
 type ServerAuthMessage struct {
 	Message
-	YourCookie         Key       `msgpack:"your_cookie"`
+	YourCookie         Cookie    `msgpack:"your_cookie"`
 	SignedKeys         []byte    `msgpack:"signed_keys"`
 	InitiatorConnected bool      `msgpack:"initiator_connected"`
 	Responders         []Address `msgpack:"responders"`
@@ -70,4 +74,54 @@ func NewServerHelloMessage(sessionPublicKey Key) ServerHelloMessage {
 		},
 		Key: sessionPublicKey,
 	}
+}
+
+func NewServerAuthMessage(
+	incomingCookie Cookie,
+	outgoingSessionPublicKey Key,
+	clientPermanentPublicKey Key,
+	serverPermanentPrivateKey Key,
+	nonce Nonce,
+	initiatorConnected bool,
+	responderAddresses []Address,
+) ServerAuthMessage {
+	var signedKeys []byte
+	nonceBytes := nonce.Bytes()
+	peersPublicKeyBytes := clientPermanentPublicKey.Bytes()
+	privateKeyBytes := serverPermanentPrivateKey.Bytes()
+	signedKeys = append(signedKeys, outgoingSessionPublicKey[:]...)
+	signedKeys = append(signedKeys, clientPermanentPublicKey[:]...)
+	signedKeys = box.Seal(nil, signedKeys, &nonceBytes, &peersPublicKeyBytes, &privateKeyBytes)
+
+	return ServerAuthMessage{
+		Message: Message{
+			Type: ServerAuth,
+		},
+		YourCookie:         incomingCookie,
+		SignedKeys:         signedKeys,
+		InitiatorConnected: initiatorConnected,
+		Responders:         responderAddresses,
+	}
+}
+
+func NewNewInitiatorMessage() NewInitiatorMessage {
+	return NewInitiatorMessage{
+		Message: Message{Type: NewInitiator},
+	}
+}
+
+func NewNewResponderMessage(responderAddress Address) NewResponderMessage {
+	return NewResponderMessage{
+		Message: Message{Type: NewResponder},
+		ID:      responderAddress,
+	}
+}
+
+func (m ClientAuthMessage) ContainsSubProtocol(subProtocol string) bool {
+	for _, tempSubProtocol := range m.SubProtocols {
+		if subProtocol == tempSubProtocol {
+			return true
+		}
+	}
+	return false
 }

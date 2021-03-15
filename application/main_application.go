@@ -1,44 +1,39 @@
 package application
 
 import (
-	"flag"
 	"github.com/pipe-network/signaling-server/interface/controllers"
 	"log"
 	"net/http"
 )
 
+type ServerAddress string
+
 type MainApplication struct {
 	SignallingController controllers.SignalingController
+
+	serverAddress ServerAddress
 }
 
 func NewMainApplication(
 	signallingController controllers.SignalingController,
+	serverAddress ServerAddress,
 ) MainApplication {
 	return MainApplication{
 		SignallingController: signallingController,
+		serverAddress:        serverAddress,
 	}
 }
 
 func (a *MainApplication) Run() {
-	address := a.parseFlags()
 	log.SetFlags(0)
 	http.HandleFunc("/", a.SignallingController.WebSocket)
-	log.Printf("Running on: https://%s", address)
+	log.Printf("Running on: https://%s", a.serverAddress)
 	log.Fatal(
-		http.ListenAndServe(
-			address,
-			//"server.crt",
-			//"server.key",
+		http.ListenAndServeTLS(
+			string(a.serverAddress),
+			"cert.pem",
+			"key.pem",
 			nil,
 		),
 	)
-}
-
-func (a MainApplication) parseFlags() string {
-	address := flag.String("address", "localhost:8080", "http service address")
-	if address == nil {
-		return ""
-	}
-	flag.Parse()
-	return *address
 }

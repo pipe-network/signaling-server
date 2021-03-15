@@ -1,6 +1,7 @@
 package values
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 )
@@ -30,4 +31,13 @@ func FromHex(hexKey string) (*Key, error) {
 
 func (k Key) Bytes() [32]byte {
 	return k
+}
+
+func (k Key) Empty() bool {
+	emptyKey := Key{}
+	return bytes.Equal(k[:], emptyKey[:])
+}
+
+func (k Key) Equals(key Key) bool {
+	return bytes.Equal(k[:], key[:])
 }

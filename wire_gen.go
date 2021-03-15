@@ -10,20 +10,30 @@ import (
 	"github.com/pipe-network/signaling-server/application"
 	"github.com/pipe-network/signaling-server/application/services"
 	"github.com/pipe-network/signaling-server/infrastructure/providers"
+	"github.com/pipe-network/signaling-server/infrastructure/storages"
 	"github.com/pipe-network/signaling-server/interface/controllers"
 )
 
 // Injectors from wire.go:
 
-func InitializeMainApplication() application.MainApplication {
+func InitializeMainApplication() (application.MainApplication, error) {
 	upgrader := providers.ProvideUpgrader()
 	signalingMessageService := services.NewSignalingMessageService()
-	saltyRTCService := services.NewSaltyRTCService(signalingMessageService)
+	publicKeyPath := providers.ProvidePublicKeyPath()
+	privateKeyPath := providers.ProvidePrivateKeyPath()
+	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter(publicKeyPath, privateKeyPath)
+	if err != nil {
+		return application.MainApplication{}, err
+	}
+	saltyRTCService := services.NewSaltyRTCService(signalingMessageService, keyPairLocalStorageAdapter)
 	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
-	mainApplication := application.NewMainApplication(signalingController)
-	return mainApplication
+	serverAddress := providers.ProvideServerAddress()
+	mainApplication := application.NewMainApplication(signalingController, serverAddress)
+	return mainApplication, nil
 }
 
 // wire.go:
 
 var Providers = wire.NewSet(providers.ProvideUpgrader)
+
+var FlagProviders = wire.NewSet(providers.ProvideServerAddress, providers.ProvidePublicKeyPath, providers.ProvidePrivateKeyPath)

@@ -19,14 +19,18 @@ type Nonce struct {
 	SequenceNumber SequenceNumber
 }
 
-func (n Nonce) Bytes() []byte {
+func (n Nonce) Bytes() [NonceByteLength]byte {
 	var bytes []byte
+	var nonceBytes [NonceByteLength]byte
+
 	bytes = append(bytes, n.Cookie[:]...)
 	bytes = append(bytes, n.Source[:]...)
 	bytes = append(bytes, n.Destination[:]...)
 	bytes = append(bytes, n.OverflowNumber[:]...)
 	bytes = append(bytes, n.SequenceNumber[:]...)
-	return bytes
+
+	copy(nonceBytes[:], bytes[:])
+	return nonceBytes
 }
 
 func (n Nonce) String() string {

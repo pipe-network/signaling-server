@@ -1,8 +1,8 @@
 package models
 
 import (
-	"bytes"
 	"crypto/rand"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pipe-network/signaling-server/domain/values"
 	"golang.org/x/crypto/nacl/box"
@@ -10,9 +10,14 @@ import (
 )
 
 type Client struct {
-	Address                values.Address
-	SessionPrivateKey      values.Key
-	SessionPublicKey       values.Key
+	ID      string
+	Address values.Address
+
+	SessionPrivateKey values.Key
+	SessionPublicKey  values.Key
+
+	PermanentPublicKey values.Key
+
 	OutgoingCookie         values.Cookie
 	OutgoingSequenceNumber values.SequenceNumber
 	OutgoingOverflowNumber values.OverflowNumber
@@ -46,6 +51,7 @@ func NewClient(
 	}
 
 	return &Client{
+		ID:                     uuid.NewString(),
 		Address:                values.UnassignedAddress,
 		SessionPrivateKey:      *sessionPrivateKey,
 		SessionPublicKey:       *sessionPublicKey,
@@ -55,6 +61,16 @@ func NewClient(
 		connection:             connection,
 		connectionMutex:        &sync.Mutex{},
 	}, nil
+}
+
+func (c *Client) Nonce() values.Nonce {
+	return values.Nonce{
+		Cookie:         c.OutgoingCookie,
+		Source:         values.ServerAddress,
+		Destination:    c.Address,
+		SequenceNumber: c.OutgoingSequenceNumber,
+		OverflowNumber: c.OutgoingOverflowNumber,
+	}
 }
 
 func (c *Client) OutgoingCombinedSequenceNumber() values.CombinedSequenceNumber {
@@ -69,34 +85,51 @@ func (c *Client) IsP2PAllowed(destinationAddress values.Address) bool {
 	return c.state == values.Authenticated && c.Address != destinationAddress
 }
 
+func (c *Client) IncomingNonceEmpty() bool {
+	return c.IncomingCookie.Empty() && c.IncomingOverflowNumber.Empty() && c.IncomingSequenceNumber.Empty()
+}
+
+func (c *Client) SetIncomingNonce(nonce values.Nonce) {
+	c.IncomingCookie = nonce.Cookie
+	c.IncomingSequenceNumber = nonce.SequenceNumber
+	c.IncomingOverflowNumber = nonce.OverflowNumber
+}
+
+func (c *Client) SetPermanentPublicKey(permanentPublicKey values.Key) {
+	c.PermanentPublicKey = permanentPublicKey
+}
+
+func (c *Client) SetAddress(address values.Address) {
+	c.Address = address
+}
+
 func (c *Client) IsCookieValid(cookie values.Cookie) bool {
-	emptyCookie := values.Cookie{}
-	if bytes.Equal(c.IncomingCookie[:], emptyCookie[:]) {
-		if bytes.Equal(c.OutgoingCookie[:], cookie[:]) {
+	if c.IncomingCookie.Empty() {
+		// Check that the outgoing cookie is not the same as the new cookie received from client
+		if c.OutgoingCookie.Equal(cookie) {
 			return false
 		}
-
-		c.IncomingCookie = cookie
 	} else {
-		if !bytes.Equal(c.IncomingCookie[:], cookie[:]) {
+		// Check that the cookie hasn't changed
+		if !c.IncomingCookie.Equal(cookie) {
 			return false
 		}
 	}
 	return true
 }
 
-func (c *Client) IsCombinedSequenceNumberValid(
-	sequenceNumber values.SequenceNumber,
-	overflowNumber values.OverflowNumber,
-) bool {
-	combinedSequenceNumber := values.NewCombinedSequenceNumber(sequenceNumber, overflowNumber)
+func (c *Client) AssignToInitiator() {
+	c.SetAddress(values.InitiatorAddress)
+}
 
-	if c.IncomingCombinedSequenceNumber().Empty() {
-		if overflowNumber.Int() != 0 {
-			return false
-		}
-		c.IncomingSequenceNumber = sequenceNumber
-		c.IncomingOverflowNumber = overflowNumber
+func (c *Client) MarkAsAuthenticated() {
+	c.state = values.Authenticated
+}
+
+func (c *Client) IsCombinedSequenceNumberValid(combinedSequenceNumber values.CombinedSequenceNumber,
+) bool {
+	if c.IncomingCombinedSequenceNumber().Empty() && combinedSequenceNumber.OverflowNumber.Int() != 0 {
+		return false
 	}
 
 	if !combinedSequenceNumber.Equal(c.IncomingCombinedSequenceNumber()) {
@@ -104,6 +137,11 @@ func (c *Client) IsCombinedSequenceNumberValid(
 	}
 
 	return true
+}
+
+func (c *Client) DropConnection(code values.CloseCode) {
+	_ = c.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code.Int(), code.Message()))
+	_ = c.connection.Close()
 }
 
 func (c *Client) IncrementIncomingCombinedSequenceNumber() error {
@@ -118,22 +156,34 @@ func (c *Client) IncrementIncomingCombinedSequenceNumber() error {
 }
 
 func (c *Client) IncrementOutgoingCombinedSequenceNumber() error {
-	outgoingCombinedSequenceNumber := c.IncomingCombinedSequenceNumber()
+	outgoingCombinedSequenceNumber := c.OutgoingCombinedSequenceNumber()
 	incrementedOutgoingCombinedSequenceNumber, err := outgoingCombinedSequenceNumber.Increment()
 	if err != nil {
 		return err
 	}
-	c.IncomingSequenceNumber = incrementedOutgoingCombinedSequenceNumber.SequenceNumber
-	c.IncomingOverflowNumber = incrementedOutgoingCombinedSequenceNumber.OverflowNumber
+	c.OutgoingSequenceNumber = incrementedOutgoingCombinedSequenceNumber.SequenceNumber
+	c.OutgoingOverflowNumber = incrementedOutgoingCombinedSequenceNumber.OverflowNumber
 	return nil
 }
 
-func (c *Client) SendSignalingMessage(signalingMessage SignalingMessage) error {
+func (c *Client) IsInitiator() bool {
+	return c.Address == values.InitiatorAddress
+}
+
+func (c *Client) IsResponder() bool {
+	return c.Address != values.InitiatorAddress && c.Address != values.UnassignedAddress
+}
+
+func (c *Client) SendBytes(bytes []byte) error {
 	c.connectionMutex.Lock()
 	defer c.connectionMutex.Unlock()
-	signalingMessageBytes, err := signalingMessage.Bytes()
+	err := c.connection.WriteMessage(websocket.BinaryMessage, bytes)
 	if err != nil {
 		return err
 	}
-	return c.connection.WriteMessage(websocket.BinaryMessage, signalingMessageBytes)
+	err = c.IncrementOutgoingCombinedSequenceNumber()
+	if err != nil {
+		return err
+	}
+	return nil
 }

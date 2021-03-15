@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
+	"github.com/pipe-network/signaling-server/application/ports"
 	"github.com/pipe-network/signaling-server/domain/models"
 	"github.com/pipe-network/signaling-server/domain/values"
-	log "github.com/sirupsen/logrus"
 )
+
+const MinPingInterval = 0
 
 var (
 	NotAllowedToRelay = func(destinationAddress values.Address) error {
@@ -20,6 +22,10 @@ var (
 	}
 	InvalidCookie         = errors.New("invalid cookie")
 	InvalidSequenceNumber = errors.New("invalid sequence number")
+	InvalidSubProtocols   = errors.New("invalid subprotocols")
+	InvalidPingInterval   = errors.New("invalid ping interval, shall be greater than 0")
+	InvalidKey            = errors.New("invalid key")
+	NoRoomInitiated       = errors.New("no room was initiated")
 )
 
 type ISaltyRTCService interface {
@@ -31,12 +37,17 @@ type SaltyRTCService struct {
 	rooms *models.Rooms
 
 	signalingMessageService ISignalingMessageService
+	keyPairStorage          ports.KeyPairStoragePort
 }
 
-func NewSaltyRTCService(signalingMessageService ISignalingMessageService) *SaltyRTCService {
+func NewSaltyRTCService(
+	signalingMessageService ISignalingMessageService,
+	keyPairStorage ports.KeyPairStoragePort,
+) *SaltyRTCService {
 	return &SaltyRTCService{
 		rooms:                   models.NewRooms(),
 		signalingMessageService: signalingMessageService,
+		keyPairStorage:          keyPairStorage,
 	}
 }
 
@@ -44,19 +55,30 @@ func (s *SaltyRTCService) OnClientConnect(
 	initiatorsPublicKey values.Key,
 	connection *websocket.Conn,
 ) (*models.Client, error) {
-	room := models.NewRoom(initiatorsPublicKey)
+	var room *models.Room
+	room = s.rooms.GetRoom(initiatorsPublicKey)
+	if room == nil {
+		room = models.NewRoom(initiatorsPublicKey)
+		s.rooms.AddRoom(room)
+	}
+
 	client, err := models.NewClient(connection)
+	connection.SetCloseHandler(func(code int, text string) error {
+		room.RemoveClient(client)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	s.rooms.AddRoom(room)
 	room.AddClient(client)
 
 	serverHelloMessage := values.NewServerHelloMessage(client.SessionPublicKey)
-	signalingMessage := models.NewSignalingMessage(client, &serverHelloMessage)
-	log.Info("OutgoingSignalingMessage:", signalingMessage.String())
-	err = client.SendSignalingMessage(signalingMessage)
+	signalingMessage := models.NewSignalingMessage(client.Nonce(), &serverHelloMessage)
+	signalingMessageBytes, err := signalingMessage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	err = client.SendBytes(signalingMessageBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +97,24 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	dataBytes = message[values.NonceByteLength:]
 
 	nonce := s.signalingMessageService.NonceFromBytes(nonceBytes)
+	if client.IncomingNonceEmpty() {
+		// after nonce has been validated, we can store it
+		client.SetIncomingNonce(nonce)
+	}
 	err := s.validateNonce(nonce, client)
 	if err != nil {
 		return err
+	}
+
+	// Increment incoming combined sequence number for next request
+	err = client.IncrementIncomingCombinedSequenceNumber()
+	if err != nil {
+		return err
+	}
+
+	room := s.rooms.GetRoom(initiatorsPublicKey)
+	if room == nil {
+		return NoRoomInitiated
 	}
 
 	if nonce.Destination == values.ServerAddress {
@@ -94,15 +131,22 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 			if err != nil {
 				return errors.New("cannot unpack neither client-hello nor client-auth")
 			}
-
-			s.onClientHelloMessage(client, nonce, *clientHelloMessage)
+			err = s.onClientHelloMessage(client, *clientHelloMessage)
+			if err != nil {
+				return err
+			}
 		} else if err != nil {
+			client.DropConnection(values.ProtocolErrorCode)
 			return err
 		} else {
-			s.onClientAuthMessage(client, nonce, *clientAuthMessage)
+			err = s.onClientAuthMessage(client, room, *clientAuthMessage)
+			if err != nil {
+				return err
+			}
 		}
 
 	} else {
+		print("relay message bljad!")
 		// Relay message to destination address
 		// source peer tries to communicate with destination peer
 	}
@@ -113,6 +157,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 
 func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Client) error {
 	isAddressedToServer := nonce.Destination == values.ServerAddress
+	combinedSequenceNumber := values.NewCombinedSequenceNumber(nonce.SequenceNumber, nonce.OverflowNumber)
 
 	// Validate destination address
 	if !isAddressedToServer && client.IsP2PAllowed(nonce.Destination) {
@@ -128,12 +173,9 @@ func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Clien
 		if !client.IsCookieValid(nonce.Cookie) {
 			return InvalidCookie
 		}
-		if !client.IsCombinedSequenceNumberValid(nonce.SequenceNumber, nonce.OverflowNumber) {
+
+		if !client.IsCombinedSequenceNumberValid(combinedSequenceNumber) {
 			return InvalidSequenceNumber
-		}
-		err := client.IncrementIncomingCombinedSequenceNumber()
-		if err != nil {
-			return err
 		}
 	}
 	return nil
@@ -141,21 +183,126 @@ func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Clien
 
 func (s *SaltyRTCService) onClientAuthMessage(
 	client *models.Client,
-	nonce values.Nonce,
+	room *models.Room,
 	clientAuthMessage values.ClientAuthMessage,
-) {
-	log.Info("it's an onClientAuthMessage\n")
-	log.Info(nonce.String())
-	log.Info(clientAuthMessage)
-	// do it
+) error {
+	if !client.OutgoingCookie.Equal(clientAuthMessage.YourCookie) {
+		return InvalidCookie
+	}
+
+	if !clientAuthMessage.ContainsSubProtocol(values.SaltyRTCSubprotocol) {
+		return InvalidSubProtocols
+	}
+
+	if clientAuthMessage.PingInterval < MinPingInterval {
+		return InvalidPingInterval
+	} else if clientAuthMessage.PingInterval > MinPingInterval {
+		// setup pings for client
+	}
+
+	if !clientAuthMessage.YourKey.Empty() {
+		if !clientAuthMessage.YourKey.Equals(s.keyPairStorage.PublicKey()) {
+			client.DropConnection(values.InvalidKeyCode)
+			return InvalidKey
+		}
+	}
+
+	if client.PermanentPublicKey.Empty() {
+		client.SetPermanentPublicKey(room.InitiatorsPublicKey)
+		room.KickCurrentInitiator()
+		client.AssignToInitiator()
+		err := s.broadcastNewInitiatorMessage(room)
+		if err != nil {
+			return err
+		}
+	} else {
+		nextFreeResponderAddress, err := room.NextFreeResponderAddress()
+		if err != nil {
+			client.DropConnection(values.PathFullCode)
+			return err
+		}
+		client.SetAddress(*nextFreeResponderAddress)
+		err = s.broadcastNewResponderMessage(client, room)
+		if err != nil {
+			return err
+		}
+	}
+
+	client.MarkAsAuthenticated()
+
+	responderAddresses := []values.Address{}
+	for _, responder := range  room.Responders(){
+		responderAddresses = append(responderAddresses, responder.Address)
+	}
+
+	outgoingNonce := client.Nonce()
+	serverAuthMessage := values.NewServerAuthMessage(
+		client.IncomingCookie,
+		client.SessionPublicKey,
+		client.PermanentPublicKey,
+		s.keyPairStorage.PrivateKey(),
+		outgoingNonce,
+		room.Initiator() != nil,
+		responderAddresses,
+	)
+	signalingMessage := models.NewSignalingMessage(outgoingNonce, &serverAuthMessage)
+	encryptedSignalingMessageBytes, err := signalingMessage.EncryptBytes(
+		client.PermanentPublicKey,
+		client.SessionPrivateKey,
+	)
+	if err != nil {
+		return err
+	}
+	err = client.SendBytes(encryptedSignalingMessageBytes)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *SaltyRTCService) onClientHelloMessage(
 	client *models.Client,
-	nonce values.Nonce,
 	clientHelloMessage values.ClientHelloMessage,
-) {
-	log.Info("it's an onClientHello\n")
-	log.Info(nonce.String())
-	log.Info(clientHelloMessage)
+) error {
+	client.SetPermanentPublicKey(clientHelloMessage.Key)
+	return nil
+}
+
+func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error {
+	newInitiatorMessage := values.NewNewInitiatorMessage()
+	responders := room.Responders()
+
+	for _, responderClient := range responders {
+		signalingMessage := models.NewSignalingMessage(responderClient.Nonce(), &newInitiatorMessage)
+		signalingMessageBytes, err := signalingMessage.EncryptBytes(
+			responderClient.PermanentPublicKey,
+			responderClient.SessionPrivateKey,
+		)
+		if err != nil {
+			return err
+		}
+		_ = responderClient.SendBytes(signalingMessageBytes)
+	}
+	return nil
+}
+
+func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
+	newResponderMessage := values.NewNewResponderMessage(responderClient.Address)
+	initiator := room.Initiator()
+	if initiator == nil {
+		return nil
+	}
+	signalingMessage := models.NewSignalingMessage(initiator.Nonce(), &newResponderMessage)
+	signalingMessageBytes, err := signalingMessage.EncryptBytes(
+		initiator.PermanentPublicKey,
+		initiator.SessionPrivateKey,
+	)
+	if err != nil {
+		return err
+	}
+	err = initiator.SendBytes(signalingMessageBytes)
+	if err != nil {
+		return err
+	}
+	return nil
 }
