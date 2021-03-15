@@ -160,7 +160,7 @@ func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Clien
 	combinedSequenceNumber := values.NewCombinedSequenceNumber(nonce.SequenceNumber, nonce.OverflowNumber)
 
 	// Validate destination address
-	if !isAddressedToServer && client.IsP2PAllowed(nonce.Destination) {
+	if !isAddressedToServer && !client.IsP2PAllowed(nonce.Destination) {
 		return NotAllowedToRelay(nonce.Destination)
 	}
 
@@ -230,9 +230,9 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	client.MarkAsAuthenticated()
 
-	responderAddresses := []values.Address{}
-	for _, responder := range  room.Responders(){
-		responderAddresses = append(responderAddresses, responder.Address)
+	responderAddresses := []int{}
+	for _, responder := range room.Responders() {
+		responderAddresses = append(responderAddresses, int(responder.Address.Int()))
 	}
 
 	outgoingNonce := client.Nonce()
