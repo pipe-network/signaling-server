@@ -7,6 +7,7 @@ import (
 	"github.com/pipe-network/signaling-server/application/ports"
 	"github.com/pipe-network/signaling-server/domain/models"
 	"github.com/pipe-network/signaling-server/domain/values"
+	"time"
 )
 
 const MinPingInterval = 0
@@ -64,6 +65,10 @@ func (s *SaltyRTCService) OnClientConnect(
 
 	client, err := models.NewClient(connection)
 	connection.SetCloseHandler(func(code int, text string) error {
+		s.broadcastDisconnected(room, client)
+		if client.IsResponder() {
+			room.ReleaseAddress(client.Address)
+		}
 		room.RemoveClient(client)
 		return nil
 	})
@@ -98,7 +103,6 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 
 	nonce := s.signalingMessageService.NonceFromBytes(nonceBytes)
 	if client.IncomingNonceEmpty() {
-		// after nonce has been validated, we can store it
 		client.SetIncomingNonce(nonce)
 	}
 	err := s.validateNonce(nonce, client)
@@ -199,7 +203,8 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	if clientAuthMessage.PingInterval < MinPingInterval {
 		return InvalidPingInterval
 	} else if clientAuthMessage.PingInterval > MinPingInterval {
-		// setup pings for client
+		pingPeriod, _ := time.ParseDuration(fmt.Sprintf("%ds", clientAuthMessage.PingInterval))
+		go client.PingTicker(pingPeriod, models.DefaultPongWait)
 	}
 
 	if !clientAuthMessage.YourKey.Empty() {
@@ -224,6 +229,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 			return err
 		}
 		client.SetAddress(*nextFreeResponderAddress)
+		room.ReserveAddress(*nextFreeResponderAddress)
 		err = s.broadcastNewResponderMessage(client, room)
 		if err != nil {
 			return err
@@ -234,7 +240,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	responderAddresses := make([]int, 0)
 	for _, responder := range room.Responders() {
-		responderAddresses = append(responderAddresses, int(responder.Address.Int()))
+		responderAddresses = append(responderAddresses, int(responder.Address))
 	}
 
 	outgoingNonce := client.Nonce()
@@ -257,7 +263,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	}
 	err = client.SendBytes(encryptedSignalingMessageBytes)
 	if err != nil {
-		
+
 		return err
 	}
 	return nil
@@ -290,7 +296,7 @@ func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error 
 }
 
 func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
-	newResponderMessage := values.NewNewResponderMessage(int(responderClient.Address.Int()))
+	newResponderMessage := values.NewNewResponderMessage(int(responderClient.Address))
 	initiator := room.Initiator()
 	if initiator == nil {
 		return nil
@@ -308,4 +314,32 @@ func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.C
 		return err
 	}
 	return nil
+}
+
+func (s *SaltyRTCService) broadcastDisconnected(room *models.Room, disconnectedClient *models.Client) {
+	if disconnectedClient.IsAuthenticated() {
+		disconnectedMessage := values.NewDisconnectedMessage(int(disconnectedClient.Address))
+		if disconnectedClient.IsInitiator() {
+			for _, responderClient := range room.Responders() {
+				signalingMessage := models.NewSignalingMessage(responderClient.Nonce(), &disconnectedMessage)
+				signalingMessageBytes, _ := signalingMessage.EncryptBytes(
+					responderClient.PermanentPublicKey,
+					responderClient.SessionPrivateKey,
+				)
+				_ = responderClient.SendBytes(signalingMessageBytes)
+			}
+		}
+		if disconnectedClient.IsResponder() {
+			initiatorClient := room.Initiator()
+			if initiatorClient == nil {
+				return
+			}
+			signalingMessage := models.NewSignalingMessage(initiatorClient.Nonce(), &disconnectedMessage)
+			signalingMessageBytes, _ := signalingMessage.EncryptBytes(
+				initiatorClient.PermanentPublicKey,
+				initiatorClient.SessionPrivateKey,
+			)
+			_ = initiatorClient.SendBytes(signalingMessageBytes)
+		}
+	}
 }

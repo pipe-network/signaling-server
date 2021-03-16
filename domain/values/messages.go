@@ -55,7 +55,7 @@ type DropResponderMessage struct {
 
 type DisconnectedMessage struct {
 	Message
-	ID Address `msgpack:"id"`
+	ID int `msgpack:"id"`
 }
 
 type SendErrorMessage struct {
@@ -114,6 +114,15 @@ func NewNewResponderMessage(responderAddress int) NewResponderMessage {
 	return NewResponderMessage{
 		Message: Message{Type: NewResponder},
 		ID:      responderAddress,
+	}
+}
+
+func NewDisconnectedMessage(id int) DisconnectedMessage {
+	return DisconnectedMessage{
+		Message: Message{
+			Type: Disconnected,
+		},
+		ID: id,
 	}
 }
 

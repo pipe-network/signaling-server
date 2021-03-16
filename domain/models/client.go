@@ -7,7 +7,10 @@ import (
 	"github.com/pipe-network/signaling-server/domain/values"
 	"golang.org/x/crypto/nacl/box"
 	"sync"
+	"time"
 )
+
+var DefaultPongWait, _ = time.ParseDuration("30s")
 
 type Client struct {
 	ID      string
@@ -82,7 +85,7 @@ func (c *Client) IncomingCombinedSequenceNumber() values.CombinedSequenceNumber 
 }
 
 func (c *Client) IsP2PAllowed(destinationAddress values.Address) bool {
-	return c.state == values.Authenticated && c.Address != destinationAddress
+	return c.IsAuthenticated() && c.Address != destinationAddress
 }
 
 func (c *Client) IncomingNonceEmpty() bool {
@@ -166,6 +169,10 @@ func (c *Client) IncrementOutgoingCombinedSequenceNumber() error {
 	return nil
 }
 
+func (c *Client) IsAuthenticated() bool {
+	return c.state == values.Authenticated
+}
+
 func (c *Client) IsInitiator() bool {
 	return c.Address == values.InitiatorAddress
 }
@@ -186,4 +193,30 @@ func (c *Client) SendBytes(bytes []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (c *Client) PingTicker(pingPeriod time.Duration, pongWait time.Duration) {
+	ticker := time.NewTicker(pingPeriod)
+	c.connection.SetPongHandler(
+		func(string) error {
+			_ = c.connection.SetReadDeadline(time.Now().Add(pongWait))
+			return nil
+		},
+	)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			err := c.connection.SetWriteDeadline(time.Now().Add(pingPeriod))
+			if err != nil {
+				return
+			}
+			c.connectionMutex.Lock()
+			err = c.connection.WriteMessage(websocket.PingMessage, nil)
+			c.connectionMutex.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
 }

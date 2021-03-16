@@ -3,7 +3,7 @@ package models
 import (
 	"errors"
 	"github.com/pipe-network/signaling-server/domain/values"
-	"math"
+	"sync"
 )
 
 var (
@@ -12,15 +12,27 @@ var (
 )
 
 type Room struct {
-	InitiatorsPublicKey values.Key
-	clients             map[string]*Client
+	InitiatorsPublicKey          values.Key
+	clients                      map[string]*Client
+	reservedResponderAddresses   map[int]bool
+	reserveResponderAddressMutex sync.Mutex
 }
 
 func NewRoom(publicKey values.Key) *Room {
 	return &Room{
-		InitiatorsPublicKey: publicKey,
-		clients:             map[string]*Client{},
+		InitiatorsPublicKey:          publicKey,
+		clients:                      map[string]*Client{},
+		reservedResponderAddresses:   initReservedResponderAddresses(),
+		reserveResponderAddressMutex: sync.Mutex{},
 	}
+}
+
+func initReservedResponderAddresses() map[int]bool {
+	reservedResponderAddresses := map[int]bool{}
+	for i := 2; i < int(values.MaxAddress); i++ {
+		reservedResponderAddresses[i] = false
+	}
+	return reservedResponderAddresses
 }
 
 // AddClient returns false if the client was already added, otherwise adds the client and returns true
@@ -52,14 +64,23 @@ func (r *Room) CountResponders() int {
 }
 
 func (r *Room) NextFreeResponderAddress() (*values.Address, error) {
-	nextFreeAddressInt := 2 + r.CountResponders()
-	if nextFreeAddressInt > math.MaxUint8 {
-		return nil, RoomFull
+	r.reserveResponderAddressMutex.Lock()
+	defer r.reserveResponderAddressMutex.Unlock()
+	for addressInt, reserved := range r.reservedResponderAddresses {
+		if !reserved {
+			address := values.Address(addressInt)
+			return &address, nil
+		}
 	}
+	return nil, RoomFull
+}
 
-	nextFreeAddress := values.AddressFromInt(uint8(nextFreeAddressInt))
-	return &nextFreeAddress, nil
+func (r *Room) ReserveAddress(address values.Address) {
+	r.reservedResponderAddresses[int(address)] = true
+}
 
+func (r *Room) ReleaseAddress(address values.Address) {
+	r.reservedResponderAddresses[int(address)] = false
 }
 
 func (r *Room) KickCurrentInitiator() {

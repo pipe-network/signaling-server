@@ -24,8 +24,8 @@ func (n Nonce) Bytes() [NonceByteLength]byte {
 	var nonceBytes [NonceByteLength]byte
 
 	bytes = append(bytes, n.Cookie[:]...)
-	bytes = append(bytes, n.Source[:]...)
-	bytes = append(bytes, n.Destination[:]...)
+	bytes = append(bytes, n.Source.Bytes()...)
+	bytes = append(bytes, n.Destination.Bytes()...)
 	bytes = append(bytes, n.OverflowNumber[:]...)
 	bytes = append(bytes, n.SequenceNumber[:]...)
 
@@ -37,8 +37,8 @@ func (n Nonce) String() string {
 	return strings.Join(
 		[]string{
 			fmt.Sprintf("OutgoingCookie: %s", hex.EncodeToString(n.Cookie[:])),
-			fmt.Sprintf("Source: %s", strconv.Itoa(int(n.Source.Int()))),
-			fmt.Sprintf("Destination: %s", strconv.Itoa(int(n.Destination.Int()))),
+			fmt.Sprintf("Source: %s", strconv.Itoa(int(n.Source))),
+			fmt.Sprintf("Destination: %s", strconv.Itoa(int(n.Destination))),
 			fmt.Sprintf("OutgoingOverflowNumber: %s", strconv.Itoa(int(n.OverflowNumber.Int()))),
 			fmt.Sprintf("OutgoingSequenceNumber: %s", strconv.Itoa(int(n.SequenceNumber.Int()))),
 		},

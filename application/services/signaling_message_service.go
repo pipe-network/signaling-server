@@ -35,15 +35,26 @@ func (s *SignalingMessageService) NonceFromBytes(bytes [values.NonceByteLength]b
 	var sequenceNumber values.SequenceNumber
 	var from int
 
+	sourceBytes := make([]byte, 1)
+	destinationBytes := make([]byte, 1)
+
 	copy(cookie[:], bytes[from:len(cookie)])
 	from += len(cookie)
-	copy(source[:], bytes[from:from+len(source)])
-	from += len(source)
-	copy(destination[:], bytes[from:from+len(destination)])
-	from += len(destination)
+	copy(sourceBytes[:], bytes[from:from+len(sourceBytes)])
+	from += len(source.Bytes())
+	copy(destinationBytes[:], bytes[from:from+len(destinationBytes)])
+	from += len(destination.Bytes())
 	copy(overflowNumber[:], bytes[from:from+len(overflowNumber)])
 	from += len(overflowNumber)
 	copy(sequenceNumber[:], bytes[from:from+len(sequenceNumber)])
+
+	if len(sourceBytes) > 0 {
+		source = values.Address(int(sourceBytes[0]))
+	}
+
+	if len(destinationBytes) > 0 {
+		destination = values.Address(int(destinationBytes[0]))
+	}
 
 	return values.Nonce{
 		Cookie:         cookie,
