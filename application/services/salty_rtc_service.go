@@ -146,9 +146,11 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 		}
 
 	} else {
-		print("relay message bljad!")
-		// Relay message to destination address
-		// source peer tries to communicate with destination peer
+		toClient := room.Client(nonce.Destination)
+		err := toClient.SendBytes(message)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -230,7 +232,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	client.MarkAsAuthenticated()
 
-	var responderAddresses []int
+	responderAddresses := make([]int, 0)
 	for _, responder := range room.Responders() {
 		responderAddresses = append(responderAddresses, int(responder.Address.Int()))
 	}
@@ -255,6 +257,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	}
 	err = client.SendBytes(encryptedSignalingMessageBytes)
 	if err != nil {
+		
 		return err
 	}
 	return nil

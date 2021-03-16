@@ -82,6 +82,15 @@ func (r *Room) Responders() []*Client {
 	return clients
 }
 
+func (r *Room) Client(address values.Address) *Client {
+	for _, client := range r.clients {
+		if client.Address == address {
+			return client
+		}
+	}
+	return nil
+}
+
 func (r *Room) Initiator() *Client {
 	for _, client := range r.clients {
 		if client.IsInitiator() {
