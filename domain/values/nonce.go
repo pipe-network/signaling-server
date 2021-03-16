@@ -19,6 +19,43 @@ type Nonce struct {
 	SequenceNumber SequenceNumber
 }
 
+func NonceFromBytes(bytes [NonceByteLength]byte) Nonce {
+	var cookie Cookie
+	var source, destination Address
+	var overflowNumber OverflowNumber
+	var sequenceNumber SequenceNumber
+	var from int
+
+	sourceBytes := make([]byte, 1)
+	destinationBytes := make([]byte, 1)
+
+	copy(cookie[:], bytes[from:len(cookie)])
+	from += len(cookie)
+	copy(sourceBytes[:], bytes[from:from+len(sourceBytes)])
+	from += len(source.Bytes())
+	copy(destinationBytes[:], bytes[from:from+len(destinationBytes)])
+	from += len(destination.Bytes())
+	copy(overflowNumber[:], bytes[from:from+len(overflowNumber)])
+	from += len(overflowNumber)
+	copy(sequenceNumber[:], bytes[from:from+len(sequenceNumber)])
+
+	if len(sourceBytes) > 0 {
+		source = Address(int(sourceBytes[0]))
+	}
+
+	if len(destinationBytes) > 0 {
+		destination = Address(int(destinationBytes[0]))
+	}
+
+	return Nonce{
+		Cookie:         cookie,
+		Source:         source,
+		Destination:    destination,
+		OverflowNumber: overflowNumber,
+		SequenceNumber: sequenceNumber,
+	}
+}
+
 func (n Nonce) Bytes() [NonceByteLength]byte {
 	var bytes []byte
 	var nonceBytes [NonceByteLength]byte

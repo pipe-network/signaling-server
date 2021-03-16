@@ -37,17 +37,14 @@ type ISaltyRTCService interface {
 type SaltyRTCService struct {
 	rooms *models.Rooms
 
-	signalingMessageService ISignalingMessageService
 	keyPairStorage          ports.KeyPairStoragePort
 }
 
 func NewSaltyRTCService(
-	signalingMessageService ISignalingMessageService,
 	keyPairStorage ports.KeyPairStoragePort,
 ) *SaltyRTCService {
 	return &SaltyRTCService{
 		rooms:                   models.NewRooms(),
-		signalingMessageService: signalingMessageService,
 		keyPairStorage:          keyPairStorage,
 	}
 }
@@ -101,7 +98,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	copy(nonceBytes[:], message[:values.NonceByteLength])
 	dataBytes = message[values.NonceByteLength:]
 
-	nonce := s.signalingMessageService.NonceFromBytes(nonceBytes)
+	nonce := values.NonceFromBytes(nonceBytes)
 	if client.IncomingNonceEmpty() {
 		client.SetIncomingNonce(nonce)
 	}
@@ -122,7 +119,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	}
 
 	if nonce.Destination == values.ServerAddress {
-		clientAuthMessage, err := s.signalingMessageService.DecodeClientAuthMessageFromBytes(
+		clientAuthMessage, err := values.DecodeClientAuthMessageFromBytes(
 			dataBytes,
 			nonceBytes,
 			initiatorsPublicKey,
@@ -130,8 +127,8 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 		)
 
 		// If the decryption failed, check if it's a client-hello message, otherwise throw err
-		if err == DecryptionFailed {
-			clientHelloMessage, err := s.signalingMessageService.ClientHelloMessageFromBytes(dataBytes)
+		if err == values.DecryptionFailed {
+			clientHelloMessage, err := values.DecodeClientHelloMessageFromBytes(dataBytes)
 			if err != nil {
 				return errors.New("cannot unpack neither client-hello nor client-auth")
 			}

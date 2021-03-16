@@ -1,7 +1,13 @@
 package values
 
 import (
+	"errors"
+	"github.com/vmihailenco/msgpack/v5"
 	"golang.org/x/crypto/nacl/box"
+)
+
+var (
+	DecryptionFailed = errors.New("decryption failed")
 )
 
 type TypedMessage interface {
@@ -65,6 +71,38 @@ type SendErrorMessage struct {
 
 func (m *Message) MessageType() MessageType {
 	return m.Type
+}
+
+func DecodeClientAuthMessageFromBytes(
+	data []byte,
+	nonce [NonceByteLength]byte,
+	publicKey,
+	privateKey Key,
+) (*ClientAuthMessage, error) {
+	var clientAuthMessage ClientAuthMessage
+
+	publicKeyBytes := publicKey.Bytes()
+	privateKeyBytes := privateKey.Bytes()
+
+	decodedDataBytes, ok := box.Open(nil, data, &nonce, &publicKeyBytes, &privateKeyBytes)
+	if !ok {
+		return nil, DecryptionFailed
+	}
+
+	err := msgpack.Unmarshal(decodedDataBytes, &clientAuthMessage)
+	if err != nil {
+		return nil, err
+	}
+	return &clientAuthMessage, nil
+}
+
+func DecodeClientHelloMessageFromBytes(rawBytes []byte) (*ClientHelloMessage, error) {
+	clientHelloMessage := &ClientHelloMessage{}
+	err := msgpack.Unmarshal(rawBytes, clientHelloMessage)
+	if err != nil {
+		return nil, err
+	}
+	return clientHelloMessage, nil
 }
 
 func NewServerHelloMessage(sessionPublicKey Key) ServerHelloMessage {

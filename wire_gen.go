@@ -18,14 +18,13 @@ import (
 
 func InitializeMainApplication() (application.MainApplication, error) {
 	upgrader := providers.ProvideUpgrader()
-	signalingMessageService := services.NewSignalingMessageService()
 	publicKeyPath := providers.ProvidePublicKeyPath()
 	privateKeyPath := providers.ProvidePrivateKeyPath()
 	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter(publicKeyPath, privateKeyPath)
 	if err != nil {
 		return application.MainApplication{}, err
 	}
-	saltyRTCService := services.NewSaltyRTCService(signalingMessageService, keyPairLocalStorageAdapter)
+	saltyRTCService := services.NewSaltyRTCService(keyPairLocalStorageAdapter)
 	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
 	serverAddress := providers.ProvideServerAddress()
 	mainApplication := application.NewMainApplication(signalingController, serverAddress)

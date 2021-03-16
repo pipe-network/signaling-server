@@ -27,14 +27,12 @@ func InitializeMainApplication() (application.MainApplication, error) {
 		wire.Build(
 			Providers,
 			FlagProviders,
-			services.NewSignalingMessageService,
 			storages.NewKeyPairLocalStorageAdapter,
 			services.NewSaltyRTCService,
 			controllers.NewSignalingController,
 			application.NewMainApplication,
 
 			wire.Bind(new(ports.KeyPairStoragePort), new(*storages.KeyPairLocalStorageAdapter)),
-			wire.Bind(new(services.ISignalingMessageService), new(*services.SignalingMessageService)),
 		),
 	)
 }
