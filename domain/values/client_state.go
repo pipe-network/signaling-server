@@ -1,8 +1,7 @@
 package values
 
 const (
-	Unauthenticated ClientState = 1
-	Authenticated   ClientState = 2
+	Authenticated ClientState = 1
 )
 
 type ClientState int

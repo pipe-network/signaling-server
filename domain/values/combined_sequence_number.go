@@ -33,8 +33,8 @@ func (n CombinedSequenceNumber) Empty() bool {
 func (n CombinedSequenceNumber) Increment() (*CombinedSequenceNumber, error) {
 	sequenceNumberValue := n.SequenceNumber.Int()
 	overflowNumberValue := n.OverflowNumber.Int()
-	if sequenceNumberValue+1 > math.MaxUint32 {
-		if overflowNumberValue+1 > math.MaxUint16 {
+	if sequenceNumberValue == math.MaxUint32 {
+		if overflowNumberValue == math.MaxUint16 {
 			return nil, OverflowReached
 		}
 		sequenceNumberValue = 0
