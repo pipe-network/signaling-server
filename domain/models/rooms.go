@@ -34,3 +34,12 @@ func (r *Rooms) RemoveRoom(initiatorsPublicKey values.Key) bool {
 	}
 	return false
 }
+
+func (r *Rooms) GetOrCreateRoom(initiatorsPublicKey values.Key) *Room {
+	room := r.GetRoom(initiatorsPublicKey)
+	if room == nil {
+		room = NewRoom(initiatorsPublicKey)
+		r.AddRoom(room)
+	}
+	return room
+}

@@ -52,6 +52,10 @@ func (c *SignalingController) WebSocket(w http.ResponseWriter, r *http.Request) 
 	for {
 		_, message, err := connection.ReadMessage()
 		if err != nil {
+			if websocket.IsCloseError(err, values.HandoverOfTheSignalingChannelCode.Int()) {
+				log.Info("Handover")
+				return
+			}
 			log.Errorf("readmessage: %v", err)
 			client.DropConnection(values.InternalErrorCode)
 			return

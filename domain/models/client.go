@@ -2,15 +2,30 @@ package models
 
 import (
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pipe-network/signaling-server/domain/values"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/nacl/box"
 	"sync"
 	"time"
 )
 
-var DefaultPongWait, _ = time.ParseDuration("30s")
+var (
+	DefaultPongWait, _ = time.ParseDuration("30s")
+	NotAllowedToRelay = func(destinationAddress values.Address) error {
+		return errors.New(fmt.Sprintf("not allowed to relay messages to %x", destinationAddress))
+	}
+	IdentitiesDoNotMatch = func(clientAddress, sourceAddress values.Address) error {
+		return errors.New(
+			fmt.Sprintf("identities do not match, expected %x, got %x", clientAddress, sourceAddress),
+		)
+	}
+	InvalidCookie         = errors.New("invalid cookie")
+	InvalidSequenceNumber = errors.New("invalid sequence number")
+)
 
 type Client struct {
 	ID      string
@@ -29,10 +44,11 @@ type Client struct {
 	IncomingSequenceNumber values.SequenceNumber
 	IncomingOverflowNumber values.OverflowNumber
 
-	state values.ClientState
+	state      values.ClientState
+	pingTicker *time.Ticker
 
-	connection      *websocket.Conn
-	connectionMutex *sync.Mutex
+	connection           *websocket.Conn
+	connectionWriteMutex *sync.Mutex
 }
 
 func NewClient(
@@ -62,7 +78,7 @@ func NewClient(
 		OutgoingSequenceNumber: *sequenceNumber,
 		OutgoingOverflowNumber: values.NewOverflowNumber(),
 		connection:             connection,
-		connectionMutex:        &sync.Mutex{},
+		connectionWriteMutex:   &sync.Mutex{},
 	}, nil
 }
 
@@ -104,6 +120,32 @@ func (c *Client) SetPermanentPublicKey(permanentPublicKey values.Key) {
 
 func (c *Client) SetAddress(address values.Address) {
 	c.Address = address
+}
+
+func (c *Client) ValidateNonce(nonce values.Nonce) error {
+	isAddressedToServer := nonce.Destination == values.ServerAddress
+	combinedSequenceNumber := values.NewCombinedSequenceNumber(nonce.SequenceNumber, nonce.OverflowNumber)
+
+	// Validate destination address
+	if !isAddressedToServer && !c.IsP2PAllowed(nonce.Destination) {
+		return NotAllowedToRelay(nonce.Destination)
+	}
+
+	// Validate source address
+	if nonce.Source != c.Address {
+		return IdentitiesDoNotMatch(c.Address, nonce.Source)
+	}
+
+	if isAddressedToServer {
+		if !c.IsCookieValid(nonce.Cookie) {
+			return InvalidCookie
+		}
+
+		if !c.IsCombinedSequenceNumberValid(combinedSequenceNumber) {
+			return InvalidSequenceNumber
+		}
+	}
+	return nil
 }
 
 func (c *Client) IsCookieValid(cookie values.Cookie) bool {
@@ -182,8 +224,8 @@ func (c *Client) IsResponder() bool {
 }
 
 func (c *Client) SendBytes(bytes []byte) error {
-	c.connectionMutex.Lock()
-	defer c.connectionMutex.Unlock()
+	c.connectionWriteMutex.Lock()
+	defer c.connectionWriteMutex.Unlock()
 	err := c.connection.WriteMessage(websocket.BinaryMessage, bytes)
 	if err != nil {
 		return err
@@ -196,27 +238,33 @@ func (c *Client) SendBytes(bytes []byte) error {
 }
 
 func (c *Client) PingTicker(pingPeriod time.Duration, pongWait time.Duration) {
-	ticker := time.NewTicker(pingPeriod)
+	c.pingTicker = time.NewTicker(pingPeriod)
 	c.connection.SetPongHandler(
 		func(string) error {
-			_ = c.connection.SetReadDeadline(time.Now().Add(pongWait))
+			log.Infof("Receiving pong from: %d", c.Address)
 			return nil
 		},
 	)
-	defer ticker.Stop()
+	defer c.pingTicker.Stop()
 	for {
 		select {
-		case <-ticker.C:
+		case <-c.pingTicker.C:
 			err := c.connection.SetWriteDeadline(time.Now().Add(pingPeriod))
 			if err != nil {
 				return
 			}
-			c.connectionMutex.Lock()
+			log.Infof("Sending ping to: %d", c.Address)
+			c.connectionWriteMutex.Lock()
 			err = c.connection.WriteMessage(websocket.PingMessage, nil)
-			c.connectionMutex.Unlock()
+			_ = c.connection.SetReadDeadline(time.Now().Add(pongWait))
+			c.connectionWriteMutex.Unlock()
 			if err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) Flush() {
+	c.pingTicker.Stop()
 }

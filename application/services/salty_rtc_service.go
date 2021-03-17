@@ -13,20 +13,10 @@ import (
 const MinPingInterval = 0
 
 var (
-	NotAllowedToRelay = func(destinationAddress values.Address) error {
-		return errors.New(fmt.Sprintf("not allowed to relay messages to %x", destinationAddress))
-	}
-	IdentitiesDoNotMatch = func(clientAddress, sourceAddress values.Address) error {
-		return errors.New(
-			fmt.Sprintf("identities do not match, expected %x, got %x", clientAddress, sourceAddress),
-		)
-	}
-	InvalidCookie         = errors.New("invalid cookie")
-	InvalidSequenceNumber = errors.New("invalid sequence number")
-	InvalidSubProtocols   = errors.New("invalid subprotocols")
-	InvalidPingInterval   = errors.New("invalid ping interval, shall be greater than 0")
-	InvalidKey            = errors.New("invalid key")
-	NoRoomInitiated       = errors.New("no room was initiated")
+	InvalidSubProtocols = errors.New("invalid subprotocols")
+	InvalidPingInterval = errors.New("invalid ping interval, shall be greater than 0")
+	InvalidKey          = errors.New("invalid key")
+	NoRoomInitiated     = errors.New("no room was initiated")
 )
 
 type ISaltyRTCService interface {
@@ -37,15 +27,15 @@ type ISaltyRTCService interface {
 type SaltyRTCService struct {
 	rooms *models.Rooms
 
-	keyPairStorage          ports.KeyPairStoragePort
+	keyPairStorage ports.KeyPairStoragePort
 }
 
 func NewSaltyRTCService(
 	keyPairStorage ports.KeyPairStoragePort,
 ) *SaltyRTCService {
 	return &SaltyRTCService{
-		rooms:                   models.NewRooms(),
-		keyPairStorage:          keyPairStorage,
+		rooms:          models.NewRooms(),
+		keyPairStorage: keyPairStorage,
 	}
 }
 
@@ -53,27 +43,24 @@ func (s *SaltyRTCService) OnClientConnect(
 	initiatorsPublicKey values.Key,
 	connection *websocket.Conn,
 ) (*models.Client, error) {
-	var room *models.Room
-	room = s.rooms.GetRoom(initiatorsPublicKey)
-	if room == nil {
-		room = models.NewRoom(initiatorsPublicKey)
-		s.rooms.AddRoom(room)
+
+	room := s.rooms.GetOrCreateRoom(initiatorsPublicKey)
+	client, err := models.NewClient(connection)
+	if err != nil {
+		return nil, err
 	}
 
-	client, err := models.NewClient(connection)
 	connection.SetCloseHandler(func(code int, text string) error {
 		s.broadcastDisconnected(room, client)
 		if client.IsResponder() {
 			room.ReleaseAddress(client.Address)
 		}
 		room.RemoveClient(client)
+		client.Flush()
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	room.AddClient(client)
 
+	room.AddClient(client)
 	serverHelloMessage := values.NewServerHelloMessage(client.SessionPublicKey)
 	signalingMessage := models.NewSignalingMessage(client.Nonce(), &serverHelloMessage)
 	signalingMessageBytes, err := signalingMessage.Bytes()
@@ -102,12 +89,12 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	if client.IncomingNonceEmpty() {
 		client.SetIncomingNonce(nonce)
 	}
-	err := s.validateNonce(nonce, client)
+	err := client.ValidateNonce(nonce)
 	if err != nil {
 		return err
 	}
 
-	// Increment incoming combined sequence number for next request
+	// Increment incoming combined sequence number for next request after validation
 	err = client.IncrementIncomingCombinedSequenceNumber()
 	if err != nil {
 		return err
@@ -132,56 +119,35 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 			if err != nil {
 				return errors.New("cannot unpack neither client-hello nor client-auth")
 			}
+
 			err = s.onClientHelloMessage(client, *clientHelloMessage)
 			if err != nil {
 				return err
 			}
-		} else if err != nil {
+		}
+
+		if err != nil {
 			client.DropConnection(values.ProtocolErrorCode)
 			return err
-		} else {
-			err = s.onClientAuthMessage(client, room, *clientAuthMessage)
-			if err != nil {
-				return err
-			}
+		}
+
+		err = s.onClientAuthMessage(client, room, *clientAuthMessage)
+		if err != nil {
+			return err
 		}
 
 	} else {
 		toClient := room.Client(nonce.Destination)
-		err := toClient.SendBytes(message)
-		if err != nil {
-			return err
+		if (client.IsInitiator() && toClient.IsResponder() || client.IsResponder() && toClient.IsInitiator()) && client.IsAuthenticated() && toClient.IsAuthenticated() {
+			err := toClient.SendBytes(message)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 
-}
-
-func (s *SaltyRTCService) validateNonce(nonce values.Nonce, client *models.Client) error {
-	isAddressedToServer := nonce.Destination == values.ServerAddress
-	combinedSequenceNumber := values.NewCombinedSequenceNumber(nonce.SequenceNumber, nonce.OverflowNumber)
-
-	// Validate destination address
-	if !isAddressedToServer && !client.IsP2PAllowed(nonce.Destination) {
-		return NotAllowedToRelay(nonce.Destination)
-	}
-
-	// Validate source address
-	if nonce.Source != client.Address {
-		return IdentitiesDoNotMatch(client.Address, nonce.Source)
-	}
-
-	if isAddressedToServer {
-		if !client.IsCookieValid(nonce.Cookie) {
-			return InvalidCookie
-		}
-
-		if !client.IsCombinedSequenceNumberValid(combinedSequenceNumber) {
-			return InvalidSequenceNumber
-		}
-	}
-	return nil
 }
 
 func (s *SaltyRTCService) onClientAuthMessage(
@@ -190,7 +156,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	clientAuthMessage values.ClientAuthMessage,
 ) error {
 	if !client.OutgoingCookie.Equal(clientAuthMessage.YourCookie) {
-		return InvalidCookie
+		return models.InvalidCookie
 	}
 
 	if !clientAuthMessage.ContainsSubProtocol(values.SaltyRTCSubprotocol) {
