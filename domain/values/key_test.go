@@ -30,3 +30,14 @@ func TestDecodeHex_Not32BytesLong(t *testing.T) {
 	assert.Equal(t, HexKeyNot32BytesLong, err)
 	assert.Nil(t, actualKey)
 }
+
+func TestKey_Empty(t *testing.T) {
+	assert.True(t, Key{}.Empty())
+	assert.False(t, Key{0x1}.Empty())
+}
+
+func TestKey_Equals(t *testing.T) {
+	assert.True(t, Key{}.Equals(Key{}))
+	assert.False(t, Key{0x1}.Equals(Key{}))
+	assert.True(t, Key{0x1}.Equals(Key{0x1}))
+}
