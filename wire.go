@@ -20,6 +20,8 @@ var FlagProviders = wire.NewSet(
 	providers.ProvideServerAddress,
 	providers.ProvidePublicKeyPath,
 	providers.ProvidePrivateKeyPath,
+	providers.ProvideTLSCertFilePath,
+	providers.ProvideTLSKeyFilePath,
 )
 
 func InitializeMainApplication() (application.MainApplication, error) {

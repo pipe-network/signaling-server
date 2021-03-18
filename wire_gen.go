@@ -27,7 +27,9 @@ func InitializeMainApplication() (application.MainApplication, error) {
 	saltyRTCService := services.NewSaltyRTCService(keyPairLocalStorageAdapter)
 	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
 	serverAddress := providers.ProvideServerAddress()
-	mainApplication := application.NewMainApplication(signalingController, serverAddress)
+	tlsCertFilePath := providers.ProvideTLSCertFilePath()
+	tlsKeyFilePath := providers.ProvideTLSKeyFilePath()
+	mainApplication := application.NewMainApplication(signalingController, serverAddress, tlsCertFilePath, tlsKeyFilePath)
 	return mainApplication, nil
 }
 
@@ -35,4 +37,4 @@ func InitializeMainApplication() (application.MainApplication, error) {
 
 var Providers = wire.NewSet(providers.ProvideUpgrader)
 
-var FlagProviders = wire.NewSet(providers.ProvideServerAddress, providers.ProvidePublicKeyPath, providers.ProvidePrivateKeyPath)
+var FlagProviders = wire.NewSet(providers.ProvideServerAddress, providers.ProvidePublicKeyPath, providers.ProvidePrivateKeyPath, providers.ProvideTLSCertFilePath, providers.ProvideTLSKeyFilePath)

@@ -7,20 +7,28 @@ import (
 )
 
 type ServerAddress string
+type TLSCertFilePath string
+type TLSKeyFilePath string
 
 type MainApplication struct {
 	SignallingController controllers.SignalingController
 
-	serverAddress ServerAddress
+	serverAddress   ServerAddress
+	tlsCertFilePath TLSCertFilePath
+	tlsKeyFilePath  TLSKeyFilePath
 }
 
 func NewMainApplication(
 	signallingController controllers.SignalingController,
 	serverAddress ServerAddress,
+	tlsCertFilePath TLSCertFilePath,
+	tlsKeyFilePath TLSKeyFilePath,
 ) MainApplication {
 	return MainApplication{
 		SignallingController: signallingController,
 		serverAddress:        serverAddress,
+		tlsCertFilePath:      tlsCertFilePath,
+		tlsKeyFilePath:       tlsKeyFilePath,
 	}
 }
 
@@ -31,8 +39,8 @@ func (a *MainApplication) Run() {
 	log.Fatal(
 		http.ListenAndServeTLS(
 			string(a.serverAddress),
-			"cert.pem",
-			"key.pem",
+			string(a.tlsCertFilePath),
+			string(a.tlsKeyFilePath),
 			nil,
 		),
 	)
