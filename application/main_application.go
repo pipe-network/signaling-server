@@ -1,46 +1,37 @@
 package application
 
 import (
+	"flag"
 	"github.com/pipe-network/signaling-server/interface/controllers"
 	"log"
 	"net/http"
 )
 
-type ServerAddress string
-type TLSCertFilePath string
-type TLSKeyFilePath string
-
 type MainApplication struct {
 	SignallingController controllers.SignalingController
-
-	serverAddress   ServerAddress
-	tlsCertFilePath TLSCertFilePath
-	tlsKeyFilePath  TLSKeyFilePath
 }
 
 func NewMainApplication(
 	signallingController controllers.SignalingController,
-	serverAddress ServerAddress,
-	tlsCertFilePath TLSCertFilePath,
-	tlsKeyFilePath TLSKeyFilePath,
 ) MainApplication {
 	return MainApplication{
 		SignallingController: signallingController,
-		serverAddress:        serverAddress,
-		tlsCertFilePath:      tlsCertFilePath,
-		tlsKeyFilePath:       tlsKeyFilePath,
 	}
 }
 
 func (a *MainApplication) Run() {
+	address := flag.String("address", "localhost:8080", "http service address")
+	tlsCertFilePath := flag.String("tls_cert_file", "./cert.pem", "TLS certificate file path")
+	tlsKeyFilePath := flag.String("tls_key_file", "./key.pem", "TLS key file path")
+	flag.Parse()
 	log.SetFlags(0)
 	http.HandleFunc("/", a.SignallingController.WebSocket)
-	log.Printf("Running on: https://%s", a.serverAddress)
+	log.Printf("Running on: https://%s", *address)
 	log.Fatal(
 		http.ListenAndServeTLS(
-			string(a.serverAddress),
-			string(a.tlsCertFilePath),
-			string(a.tlsKeyFilePath),
+			*address,
+			*tlsCertFilePath,
+			*tlsKeyFilePath,
 			nil,
 		),
 	)

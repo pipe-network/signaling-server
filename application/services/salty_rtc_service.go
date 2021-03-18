@@ -124,9 +124,9 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 			if err != nil {
 				return err
 			}
-		}
 
-		if err != nil {
+			return nil
+		} else if err != nil {
 			client.DropConnection(values.ProtocolErrorCode)
 			return err
 		}
@@ -136,6 +136,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 			return err
 		}
 
+		return nil
 	} else {
 		toClient := room.Client(nonce.Destination)
 		if (client.IsInitiator() && toClient.IsResponder() || client.IsResponder() && toClient.IsInitiator()) && client.IsAuthenticated() && toClient.IsAuthenticated() {

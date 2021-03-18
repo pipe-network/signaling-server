@@ -18,23 +18,16 @@ import (
 
 func InitializeMainApplication() (application.MainApplication, error) {
 	upgrader := providers.ProvideUpgrader()
-	publicKeyPath := providers.ProvidePublicKeyPath()
-	privateKeyPath := providers.ProvidePrivateKeyPath()
-	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter(publicKeyPath, privateKeyPath)
+	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter()
 	if err != nil {
 		return application.MainApplication{}, err
 	}
 	saltyRTCService := services.NewSaltyRTCService(keyPairLocalStorageAdapter)
 	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
-	serverAddress := providers.ProvideServerAddress()
-	tlsCertFilePath := providers.ProvideTLSCertFilePath()
-	tlsKeyFilePath := providers.ProvideTLSKeyFilePath()
-	mainApplication := application.NewMainApplication(signalingController, serverAddress, tlsCertFilePath, tlsKeyFilePath)
+	mainApplication := application.NewMainApplication(signalingController)
 	return mainApplication, nil
 }
 
 // wire.go:
 
 var Providers = wire.NewSet(providers.ProvideUpgrader)
-
-var FlagProviders = wire.NewSet(providers.ProvideServerAddress, providers.ProvidePublicKeyPath, providers.ProvidePrivateKeyPath, providers.ProvideTLSCertFilePath, providers.ProvideTLSKeyFilePath)

@@ -2,29 +2,26 @@ package storages
 
 import (
 	"encoding/hex"
+	"flag"
 	"github.com/pipe-network/signaling-server/domain/values"
 	"os"
 	"strings"
 )
 
-type PublicKeyPath string
-type PrivateKeyPath string
-
 type KeyPairLocalStorageAdapter struct {
-	publicKeyPath  PublicKeyPath
-	privateKeyPath PrivateKeyPath
-
 	publicKey  values.Key
 	privateKey values.Key
+
+	publicKeyPath  string
+	privateKeyPath string
 }
 
-func NewKeyPairLocalStorageAdapter(
-	publicKeyPath PublicKeyPath,
-	privateKeyPath PrivateKeyPath,
-) (*KeyPairLocalStorageAdapter, error) {
+func NewKeyPairLocalStorageAdapter() (*KeyPairLocalStorageAdapter, error) {
+	publicKeyPath := flag.String("public_key_file", "./public.key", "public key file path")
+	privateKeyPath := flag.String("private_key_file", "./private.key", "private key file path")
 	keyPairStorageAdapter := &KeyPairLocalStorageAdapter{
-		publicKeyPath:  publicKeyPath,
-		privateKeyPath: privateKeyPath,
+		publicKeyPath:  *publicKeyPath,
+		privateKeyPath: *privateKeyPath,
 	}
 
 	err := keyPairStorageAdapter.Load()
