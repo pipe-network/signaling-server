@@ -37,3 +37,17 @@ TLS certificate file path:
 TLS key file path:
 --tls_key_file ./key.pem
 ```
+
+# Generate certificates
+
+To generate a TLS certificate just use the main/generate_certificate.go file with:
+
+```
+go run main/generate_certificate.go --host your_host
+```
+
+# Generate box key pairs
+
+```
+go run main/generate_box_keypair.go 
+```
