@@ -75,21 +75,11 @@ func (s *SaltyRTCService) OnClientConnect(
 }
 
 func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error {
-	messageLength := len(message)
-	if messageLength < models.SignalingMessageMinByteLength {
-		return errors.New(fmt.Sprintf("message too short %v bytes", messageLength))
-	}
-
-	var nonceBytes [values.NonceByteLength]byte
-	var dataBytes []byte
-	copy(nonceBytes[:], message[:values.NonceByteLength])
-	dataBytes = message[values.NonceByteLength:]
-
-	nonce := values.NonceFromBytes(nonceBytes)
+	nonce, dataBytes, err := s.splitMessage(message)
 	if client.IncomingNonceEmpty() {
 		client.SetIncomingNonce(nonce)
 	}
-	err := client.ValidateNonce(nonce)
+	err = client.ValidateNonce(nonce)
 	if err != nil {
 		return err
 	}
@@ -111,7 +101,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 		if client.IsAuthenticated() && client.IsInitiator() {
 			dropResponderMessage, err := values.DecodeDropResponderMessageFromBytes(
 				message,
-				nonceBytes,
+				nonce.Bytes(),
 				initiatorsPublicKey,
 				client.SessionPrivateKey,
 			)
@@ -129,7 +119,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 		}
 		clientAuthMessage, err := values.DecodeClientAuthMessageFromBytes(
 			dataBytes,
-			nonceBytes,
+			nonce.Bytes(),
 			clientsPermanentPublicKey,
 			client.SessionPrivateKey,
 		)
@@ -169,7 +159,21 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	}
 
 	return nil
+}
 
+func (s *SaltyRTCService) splitMessage(message []byte) (values.Nonce, []byte, error) {
+	messageLength := len(message)
+	if messageLength < models.SignalingMessageMinByteLength {
+		return values.Nonce{}, nil, errors.New(fmt.Sprintf("message too short %v bytes", messageLength))
+	}
+
+	var nonceBytes [values.NonceByteLength]byte
+	var dataBytes []byte
+	copy(nonceBytes[:], message[:values.NonceByteLength])
+	dataBytes = message[values.NonceByteLength:]
+
+	nonce := values.NonceFromBytes(nonceBytes)
+	return nonce, dataBytes, nil
 }
 
 func (s *SaltyRTCService) onClientAuthMessage(
