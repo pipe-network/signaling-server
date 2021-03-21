@@ -106,10 +106,31 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	}
 
 	if nonce.Destination == values.ServerAddress {
+
+		// Client is is initiator and already authenticated, so it's probably the drop responder message
+		if client.IsAuthenticated() && client.IsInitiator() {
+			dropResponderMessage, err := values.DecodeDropResponderMessageFromBytes(
+				message,
+				nonceBytes,
+				initiatorsPublicKey,
+				client.SessionPrivateKey,
+			)
+			if err != nil {
+				return err
+			}
+			return s.onDropResponderMessage(*dropResponderMessage, room)
+		}
+
+		clientsPermanentPublicKey := values.Key{}
+		if !client.PermanentPublicKey.Empty() {
+			clientsPermanentPublicKey = client.PermanentPublicKey
+		} else {
+			clientsPermanentPublicKey = initiatorsPublicKey
+		}
 		clientAuthMessage, err := values.DecodeClientAuthMessageFromBytes(
 			dataBytes,
 			nonceBytes,
-			initiatorsPublicKey,
+			clientsPermanentPublicKey,
 			client.SessionPrivateKey,
 		)
 
@@ -202,9 +223,9 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	client.MarkAsAuthenticated()
 
-	responderAddresses := make([]int, 0)
+	responderAddresses := make([]values.Address, 0)
 	for _, responder := range room.Responders() {
-		responderAddresses = append(responderAddresses, int(responder.Address))
+		responderAddresses = append(responderAddresses, responder.Address)
 	}
 
 	outgoingNonce := client.Nonce()
@@ -259,8 +280,24 @@ func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error 
 	return nil
 }
 
+func (s *SaltyRTCService) onDropResponderMessage(
+	dropResponderMessage values.DropResponderMessage,
+	room *models.Room,
+) error {
+	client := room.Client(dropResponderMessage.ID)
+	if client != nil {
+		reason := dropResponderMessage.Reason
+		if reason == values.CloseCode(0) {
+			reason = values.DroppedByInitiatorCode
+		}
+
+		client.DropConnection(reason)
+	}
+	return nil
+}
+
 func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
-	newResponderMessage := values.NewNewResponderMessage(int(responderClient.Address))
+	newResponderMessage := values.NewNewResponderMessage(responderClient.Address)
 	initiator := room.Initiator()
 	if initiator == nil {
 		return nil
@@ -282,7 +319,7 @@ func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.C
 
 func (s *SaltyRTCService) broadcastDisconnected(room *models.Room, disconnectedClient *models.Client) {
 	if disconnectedClient.IsAuthenticated() {
-		disconnectedMessage := values.NewDisconnectedMessage(int(disconnectedClient.Address))
+		disconnectedMessage := values.NewDisconnectedMessage(disconnectedClient.Address)
 		if disconnectedClient.IsInitiator() {
 			for _, responderClient := range room.Responders() {
 				signalingMessage := models.NewSignalingMessage(responderClient.Nonce(), &disconnectedMessage)

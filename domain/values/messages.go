@@ -38,10 +38,10 @@ type ClientAuthMessage struct {
 
 type ServerAuthMessage struct {
 	Message
-	YourCookie         Cookie `msgpack:"your_cookie"`
-	SignedKeys         []byte `msgpack:"signed_keys"`
-	InitiatorConnected bool   `msgpack:"initiator_connected"`
-	Responders         []int  `msgpack:"responders"`
+	YourCookie         Cookie    `msgpack:"your_cookie"`
+	SignedKeys         []byte    `msgpack:"signed_keys"`
+	InitiatorConnected bool      `msgpack:"initiator_connected"`
+	Responders         []Address `msgpack:"responders"`
 }
 
 type NewInitiatorMessage struct {
@@ -50,18 +50,18 @@ type NewInitiatorMessage struct {
 
 type NewResponderMessage struct {
 	Message
-	ID int `msgpack:"id"`
+	ID Address `msgpack:"id"`
 }
 
 type DropResponderMessage struct {
 	Message
-	ID     int       `msgpack:"id"`
+	ID     Address   `msgpack:"id"`
 	Reason CloseCode `msgpack:"reason"`
 }
 
 type DisconnectedMessage struct {
 	Message
-	ID int `msgpack:"id"`
+	ID Address `msgpack:"id"`
 }
 
 type SendErrorMessage struct {
@@ -73,14 +73,12 @@ func (m *Message) MessageType() MessageType {
 	return m.Type
 }
 
-func DecodeClientAuthMessageFromBytes(
+func DecryptMessage(
 	data []byte,
 	nonce [NonceByteLength]byte,
 	publicKey,
 	privateKey Key,
-) (*ClientAuthMessage, error) {
-	var clientAuthMessage ClientAuthMessage
-
+) ([]byte, error) {
 	publicKeyBytes := publicKey.Bytes()
 	privateKeyBytes := privateKey.Bytes()
 
@@ -88,12 +86,41 @@ func DecodeClientAuthMessageFromBytes(
 	if !ok {
 		return nil, DecryptionFailed
 	}
+	return decodedDataBytes, nil
+}
 
-	err := msgpack.Unmarshal(decodedDataBytes, &clientAuthMessage)
+func DecodeClientAuthMessageFromBytes(
+	data []byte,
+	nonce [NonceByteLength]byte,
+	publicKey,
+	privateKey Key,
+) (*ClientAuthMessage, error) {
+	var clientAuthMessage ClientAuthMessage
+	var err error
+	decryptedMessage, err := DecryptMessage(data, nonce, publicKey, privateKey)
+	if err != nil {
+		return nil, err
+	}
+	err = msgpack.Unmarshal(decryptedMessage, &clientAuthMessage)
 	if err != nil {
 		return nil, err
 	}
 	return &clientAuthMessage, nil
+}
+
+func DecodeDropResponderMessageFromBytes(
+	data []byte,
+	nonce [NonceByteLength]byte,
+	publicKey,
+	privateKey Key,
+) (*DropResponderMessage, error) {
+	var dropResponderMessage DropResponderMessage
+	decryptedMessage, err := DecryptMessage(data, nonce, publicKey, privateKey)
+	err = msgpack.Unmarshal(decryptedMessage, &dropResponderMessage)
+	if err != nil {
+		return nil, err
+	}
+	return &dropResponderMessage, nil
 }
 
 func DecodeClientHelloMessageFromBytes(rawBytes []byte) (*ClientHelloMessage, error) {
@@ -121,7 +148,7 @@ func NewServerAuthMessage(
 	serverPermanentPrivateKey Key,
 	nonce Nonce,
 	initiatorConnected bool,
-	responderAddresses []int,
+	responderAddresses []Address,
 ) ServerAuthMessage {
 	var signedKeys []byte
 	nonceBytes := nonce.Bytes()
@@ -148,14 +175,14 @@ func NewNewInitiatorMessage() NewInitiatorMessage {
 	}
 }
 
-func NewNewResponderMessage(responderAddress int) NewResponderMessage {
+func NewNewResponderMessage(responderAddress Address) NewResponderMessage {
 	return NewResponderMessage{
 		Message: Message{Type: NewResponder},
 		ID:      responderAddress,
 	}
 }
 
-func NewDisconnectedMessage(id int) DisconnectedMessage {
+func NewDisconnectedMessage(id Address) DisconnectedMessage {
 	return DisconnectedMessage{
 		Message: Message{
 			Type: Disconnected,

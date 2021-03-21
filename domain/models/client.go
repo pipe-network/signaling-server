@@ -15,7 +15,7 @@ import (
 
 var (
 	DefaultPongWait, _ = time.ParseDuration("30s")
-	NotAllowedToRelay = func(destinationAddress values.Address) error {
+	NotAllowedToRelay  = func(destinationAddress values.Address) error {
 		return errors.New(fmt.Sprintf("not allowed to relay messages to %x", destinationAddress))
 	}
 	IdentitiesDoNotMatch = func(clientAddress, sourceAddress values.Address) error {

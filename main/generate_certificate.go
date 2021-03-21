@@ -10,21 +10,21 @@
 package main
 
 import (
-"crypto/ecdsa"
-"crypto/ed25519"
-"crypto/elliptic"
-"crypto/rand"
-"crypto/rsa"
-"crypto/x509"
-"crypto/x509/pkix"
-"encoding/pem"
-"flag"
-"log"
-"math/big"
-"net"
-"os"
-"strings"
-"time"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"flag"
+	"log"
+	"math/big"
+	"net"
+	"os"
+	"strings"
+	"time"
 )
 
 var (
