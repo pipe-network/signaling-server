@@ -40,8 +40,8 @@ type ServerAuthMessage struct {
 	Message
 	YourCookie         Cookie    `msgpack:"your_cookie"`
 	SignedKeys         []byte    `msgpack:"signed_keys"`
-	InitiatorConnected bool      `msgpack:"initiator_connected"`
-	Responders         []Address `msgpack:"responders"`
+	InitiatorConnected *bool      `msgpack:"initiator_connected,omitempty"`
+	Responders         *[]Address `msgpack:"responders"`
 }
 
 type NewInitiatorMessage struct {
@@ -147,8 +147,8 @@ func NewServerAuthMessage(
 	clientPermanentPublicKey Key,
 	serverPermanentPrivateKey Key,
 	nonce Nonce,
-	initiatorConnected bool,
-	responderAddresses []Address,
+	initiatorConnected *bool,
+	responderAddresses *[]Address,
 ) ServerAuthMessage {
 	var signedKeys []byte
 	nonceBytes := nonce.Bytes()

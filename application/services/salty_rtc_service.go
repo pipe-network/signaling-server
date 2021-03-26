@@ -7,6 +7,7 @@ import (
 	"github.com/pipe-network/signaling-server/application/ports"
 	"github.com/pipe-network/signaling-server/domain/models"
 	"github.com/pipe-network/signaling-server/domain/values"
+	log "github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -43,20 +44,15 @@ func (s *SaltyRTCService) OnClientConnect(
 	initiatorsPublicKey values.Key,
 	connection *websocket.Conn,
 ) (*models.Client, error) {
-
 	room := s.rooms.GetOrCreateRoom(initiatorsPublicKey)
-	client, err := models.NewClient(connection)
+	client, err := models.NewClient(connection, room)
 	if err != nil {
+		_ = connection.Close()
 		return nil, err
 	}
 
 	connection.SetCloseHandler(func(code int, text string) error {
-		s.broadcastDisconnected(room, client)
-		if client.IsResponder() {
-			room.ReleaseAddress(client.Address)
-		}
-		room.RemoveClient(client)
-		client.Flush()
+		s.cleanup(client, room)
 		return nil
 	})
 
@@ -65,27 +61,48 @@ func (s *SaltyRTCService) OnClientConnect(
 	signalingMessage := models.NewSignalingMessage(client.Nonce(), &serverHelloMessage)
 	signalingMessageBytes, err := signalingMessage.Bytes()
 	if err != nil {
+		client.DropConnection(values.InternalErrorCode)
+		s.cleanup(client, room)
 		return nil, err
 	}
 	err = client.SendBytes(signalingMessageBytes)
 	if err != nil {
+		client.DropConnection(values.InternalErrorCode)
+		s.cleanup(client, room)
 		return nil, err
 	}
 	return client, nil
 }
 
+func (s *SaltyRTCService) ReadMessageLoop(initiatorsPublicKey values.Key, client *models.Client) {
+	room := s.rooms.GetOrCreateRoom(initiatorsPublicKey)
+
+	for {
+		_, message, err := client.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, values.HandoverOfTheSignalingChannelCode.Int()) {
+				log.Infof("Handover of %d", client.Address)
+				client.DropConnection(values.InternalErrorCode)
+				s.cleanup(client, room)
+				return
+			}
+			log.Errorf("readmessage: %v", err)
+			client.DropConnection(values.InternalErrorCode)
+			s.cleanup(client, room)
+			return
+		}
+		err = s.OnMessage(initiatorsPublicKey, client, message)
+		if err != nil {
+			log.Errorf("onmessage: %v", err)
+			client.DropConnection(values.InternalErrorCode)
+			s.cleanup(client, room)
+			return
+		}
+	}
+}
+
 func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error {
 	nonce, dataBytes, err := s.splitMessage(message)
-	if client.IncomingNonceEmpty() {
-		client.SetIncomingNonce(nonce)
-	}
-	err = client.ValidateNonce(nonce)
-	if err != nil {
-		return err
-	}
-
-	// Increment incoming combined sequence number for next request after validation
-	err = client.IncrementIncomingCombinedSequenceNumber()
 	if err != nil {
 		return err
 	}
@@ -96,11 +113,25 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	}
 
 	if nonce.Destination == values.ServerAddress {
+		if client.IncomingNonceEmpty() {
+			client.SetIncomingNonce(nonce)
+		}
+
+		err = client.ValidateNonce(nonce)
+		if err != nil {
+			return err
+		}
+
+		// Increment incoming combined sequence number for next request after validation
+		err = client.IncrementIncomingCombinedSequenceNumber()
+		if err != nil {
+			return err
+		}
 
 		// Client is is initiator and already authenticated, so it's probably the drop responder message
 		if client.IsAuthenticated() && client.IsInitiator() {
 			dropResponderMessage, err := values.DecodeDropResponderMessageFromBytes(
-				message,
+				dataBytes,
 				nonce.Bytes(),
 				initiatorsPublicKey,
 				client.SessionPrivateKey,
@@ -139,6 +170,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 			return nil
 		} else if err != nil {
 			client.DropConnection(values.ProtocolErrorCode)
+			s.cleanup(client, room)
 			return err
 		}
 
@@ -159,6 +191,16 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	}
 
 	return nil
+}
+
+func (s *SaltyRTCService) cleanup(client *models.Client, room *models.Room) {
+	log.Debug("Cleanup after close of: ", client.Address)
+	s.broadcastDisconnected(room, client)
+	if client.IsResponder() {
+		room.ReleaseAddress(client.Address)
+	}
+	room.RemoveClient(client)
+	client.Flush()
 }
 
 func (s *SaltyRTCService) splitMessage(message []byte) (values.Nonce, []byte, error) {
@@ -199,6 +241,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	if !clientAuthMessage.YourKey.Empty() {
 		if !clientAuthMessage.YourKey.Equals(s.keyPairStorage.PublicKey()) {
 			client.DropConnection(values.InvalidKeyCode)
+			s.cleanup(client, room)
 			return InvalidKey
 		}
 	}
@@ -215,6 +258,7 @@ func (s *SaltyRTCService) onClientAuthMessage(
 		nextFreeResponderAddress, err := room.NextFreeResponderAddress()
 		if err != nil {
 			client.DropConnection(values.PathFullCode)
+			s.cleanup(client, room)
 			return err
 		}
 		client.SetAddress(*nextFreeResponderAddress)
@@ -227,19 +271,30 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	client.MarkAsAuthenticated()
 
-	responderAddresses := make([]values.Address, 0)
-	for _, responder := range room.Responders() {
-		responderAddresses = append(responderAddresses, responder.Address)
+	outgoingNonce := client.Nonce()
+	var initiatorConnected *bool
+	var responderAddresses *[]values.Address
+
+	if client.IsInitiator() {
+		roomResponders := room.Responders()
+		responderAddressesTemp :=  make([]values.Address, len(roomResponders))
+		for _, responder := range roomResponders {
+			responderAddressesTemp = append(responderAddressesTemp, responder.Address)
+		}
+
+		responderAddresses = &responderAddressesTemp
+	} else {
+		initiatorConnectedTemp := room.Initiator() != nil
+		initiatorConnected = &initiatorConnectedTemp
 	}
 
-	outgoingNonce := client.Nonce()
 	serverAuthMessage := values.NewServerAuthMessage(
 		client.IncomingCookie,
 		client.SessionPublicKey,
 		client.PermanentPublicKey,
 		s.keyPairStorage.PrivateKey(),
 		outgoingNonce,
-		room.Initiator() != nil,
+		initiatorConnected,
 		responderAddresses,
 	)
 	signalingMessage := models.NewSignalingMessage(outgoingNonce, &serverAuthMessage)
@@ -296,6 +351,7 @@ func (s *SaltyRTCService) onDropResponderMessage(
 		}
 
 		client.DropConnection(reason)
+		s.cleanup(client, room)
 	}
 	return nil
 }

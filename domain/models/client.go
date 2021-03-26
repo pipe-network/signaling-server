@@ -48,11 +48,13 @@ type Client struct {
 	pingTicker *time.Ticker
 
 	connection           *websocket.Conn
+	connected            bool
 	connectionWriteMutex *sync.Mutex
 }
 
 func NewClient(
 	connection *websocket.Conn,
+	room *Room,
 ) (*Client, error) {
 	sessionPublicKey, sessionPrivateKey, err := box.GenerateKey(rand.Reader)
 	if err != nil {
@@ -78,6 +80,7 @@ func NewClient(
 		OutgoingSequenceNumber: *sequenceNumber,
 		OutgoingOverflowNumber: values.NewOverflowNumber(),
 		connection:             connection,
+		connected:              true,
 		connectionWriteMutex:   &sync.Mutex{},
 	}, nil
 }
@@ -185,8 +188,18 @@ func (c *Client) IsCombinedSequenceNumberValid(combinedSequenceNumber values.Com
 }
 
 func (c *Client) DropConnection(code values.CloseCode) {
+	c.connectionWriteMutex.Lock()
+	c.connected = false
+	defer c.connectionWriteMutex.Unlock()
 	_ = c.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code.Int(), code.Message()))
 	_ = c.connection.Close()
+}
+
+func (c *Client) ReadMessage() (messageType int, p []byte, err error) {
+	if !c.connected {
+		return 0, []byte{}, errors.New("client not connected anymore")
+	}
+	return c.connection.ReadMessage()
 }
 
 func (c *Client) IncrementIncomingCombinedSequenceNumber() error {

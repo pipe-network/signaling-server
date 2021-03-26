@@ -10,8 +10,8 @@ import (
 )
 
 type SignalingController struct {
-	upgrader       websocket.Upgrader
-	saltyRTCServer *services.SaltyRTCService
+	upgrader        websocket.Upgrader
+	saltyRTCService *services.SaltyRTCService
 }
 
 func NewSignalingController(
@@ -19,8 +19,8 @@ func NewSignalingController(
 	saltyRTCService *services.SaltyRTCService,
 ) SignalingController {
 	return SignalingController{
-		upgrader:       upgrader,
-		saltyRTCServer: saltyRTCService,
+		upgrader:        upgrader,
+		saltyRTCService: saltyRTCService,
 	}
 }
 
@@ -38,33 +38,13 @@ func (c *SignalingController) WebSocket(w http.ResponseWriter, r *http.Request) 
 		log.Errorf("upgrade: %v", err)
 		return
 	}
-	defer connection.Close()
-	client, err := c.saltyRTCServer.OnClientConnect(
+	client, err := c.saltyRTCService.OnClientConnect(
 		*initiatorsPublicKey,
 		connection,
 	)
 	if err != nil {
 		log.Errorf("onClientConnect: %v", err)
-		client.DropConnection(values.InternalErrorCode)
 		return
 	}
-
-	for {
-		_, message, err := connection.ReadMessage()
-		if err != nil {
-			if websocket.IsCloseError(err, values.HandoverOfTheSignalingChannelCode.Int()) {
-				log.Info("Handover")
-				return
-			}
-			log.Errorf("readmessage: %v", err)
-			client.DropConnection(values.InternalErrorCode)
-			return
-		}
-		err = c.saltyRTCServer.OnMessage(*initiatorsPublicKey, client, message)
-		if err != nil {
-			log.Errorf("onmessage: %v", err)
-			client.DropConnection(values.InternalErrorCode)
-			return
-		}
-	}
+	c.saltyRTCService.ReadMessageLoop(*initiatorsPublicKey, client)
 }
