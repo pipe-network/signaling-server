@@ -251,6 +251,7 @@ func (c *Client) SendBytes(bytes []byte) error {
 }
 
 func (c *Client) PingTicker(pingPeriod time.Duration, pongWait time.Duration) {
+	var err error
 	c.pingTicker = time.NewTicker(pingPeriod)
 	c.connection.SetPongHandler(
 		func(string) error {
@@ -262,18 +263,17 @@ func (c *Client) PingTicker(pingPeriod time.Duration, pongWait time.Duration) {
 	for {
 		select {
 		case <-c.pingTicker.C:
-			err := c.connection.SetWriteDeadline(time.Now().Add(pingPeriod))
-			if err != nil {
-				return
-			}
 			log.Infof("Sending ping to: %d", c.Address)
 			c.connectionWriteMutex.Lock()
-			err = c.connection.WriteMessage(websocket.PingMessage, nil)
-			_ = c.connection.SetReadDeadline(time.Now().Add(pongWait))
-			c.connectionWriteMutex.Unlock()
+			err = c.connection.SetWriteDeadline(time.Now().Add(pingPeriod))
 			if err != nil {
 				return
 			}
+			err = c.connection.WriteMessage(websocket.PingMessage, nil)
+			if err != nil {
+				return
+			}
+			c.connectionWriteMutex.Unlock()
 		}
 	}
 }
