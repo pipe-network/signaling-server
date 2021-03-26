@@ -61,12 +61,14 @@ func (s *SaltyRTCService) OnClientConnect(
 	signalingMessage := models.NewSignalingMessage(client.Nonce(), &serverHelloMessage)
 	signalingMessageBytes, err := signalingMessage.Bytes()
 	if err != nil {
+		log.Errorf("dropping connection: could not get bytes of signaling message: %v", err)
 		client.DropConnection(values.InternalErrorCode)
 		s.cleanup(client, room)
 		return nil, err
 	}
 	err = client.SendBytes(signalingMessageBytes)
 	if err != nil {
+		log.Errorf("dropping connection: could not send bytes with signaling message: %v", err)
 		client.DropConnection(values.InternalErrorCode)
 		s.cleanup(client, room)
 		return nil, err
@@ -82,18 +84,21 @@ func (s *SaltyRTCService) ReadMessageLoop(initiatorsPublicKey values.Key, client
 		if err != nil {
 			if websocket.IsCloseError(err, values.HandoverOfTheSignalingChannelCode.Int()) {
 				log.Infof("Handover of %d", client.Address)
-				client.DropConnection(values.InternalErrorCode)
+				err = client.CloseConnection()
+				if err != nil {
+					log.Errorf("closing connection: could not close connection: %v", err)
+				}
 				s.cleanup(client, room)
 				return
 			}
-			log.Errorf("readmessage: %v", err)
+			log.Errorf("dropping connection: could read client message: %v", err)
 			client.DropConnection(values.InternalErrorCode)
 			s.cleanup(client, room)
 			return
 		}
 		err = s.OnMessage(initiatorsPublicKey, client, message)
 		if err != nil {
-			log.Errorf("onmessage: %v", err)
+			log.Errorf("dropping connection: could not process onmessage: %v", err)
 			client.DropConnection(values.InternalErrorCode)
 			s.cleanup(client, room)
 			return
@@ -277,9 +282,9 @@ func (s *SaltyRTCService) onClientAuthMessage(
 
 	if client.IsInitiator() {
 		roomResponders := room.Responders()
-		responderAddressesTemp :=  make([]values.Address, len(roomResponders))
-		for _, responder := range roomResponders {
-			responderAddressesTemp = append(responderAddressesTemp, responder.Address)
+		responderAddressesTemp := make([]values.Address, len(roomResponders))
+		for i, responder := range roomResponders {
+			responderAddressesTemp[i] = responder.Address
 		}
 
 		responderAddresses = &responderAddressesTemp

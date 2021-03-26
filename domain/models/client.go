@@ -192,7 +192,11 @@ func (c *Client) DropConnection(code values.CloseCode) {
 	c.connected = false
 	defer c.connectionWriteMutex.Unlock()
 	_ = c.connection.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code.Int(), code.Message()))
-	_ = c.connection.Close()
+	_ = c.CloseConnection()
+}
+
+func (c *Client) CloseConnection() error {
+	return c.connection.Close()
 }
 
 func (c *Client) ReadMessage() (messageType int, p []byte, err error) {
