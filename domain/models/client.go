@@ -241,16 +241,18 @@ func (c *Client) IsResponder() bool {
 }
 
 func (c *Client) SendBytes(bytes []byte) error {
+	err := c.IncrementOutgoingCombinedSequenceNumber()
+	if err != nil {
+		return err
+	}
+
 	c.connectionWriteMutex.Lock()
 	defer c.connectionWriteMutex.Unlock()
-	err := c.connection.WriteMessage(websocket.BinaryMessage, bytes)
+	err = c.connection.WriteMessage(websocket.BinaryMessage, bytes)
 	if err != nil {
 		return err
 	}
-	err = c.IncrementOutgoingCombinedSequenceNumber()
-	if err != nil {
-		return err
-	}
+
 	return nil
 }
 
@@ -283,5 +285,8 @@ func (c *Client) PingTicker(pingPeriod time.Duration, pongWait time.Duration) {
 }
 
 func (c *Client) Flush() {
-	c.pingTicker.Stop()
+	if c.pingTicker != nil {
+		c.pingTicker.Stop()
+	}
+	c.pingTicker = nil
 }
