@@ -6,11 +6,13 @@ import (
 	"errors"
 )
 
+const KeyByteLength = 32
+
 var (
 	HexKeyNot32BytesLong = errors.New("given hexKey is not 32 bytes (64 hex chars) long")
 )
 
-type Key [32]byte
+type Key [KeyByteLength]byte
 
 func FromHex(hexKey string) (*Key, error) {
 	decodedKey, err := hex.DecodeString(hexKey)
@@ -26,10 +28,13 @@ func FromHex(hexKey string) (*Key, error) {
 	copy(key[:], decodedKey[:32])
 
 	return &key, err
-
 }
 
-func (k Key) Bytes() [32]byte {
+func (k Key) HexString() string {
+	return hex.EncodeToString(k[:])
+}
+
+func (k Key) Bytes() [KeyByteLength]byte {
 	return k
 }
 

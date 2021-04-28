@@ -14,6 +14,10 @@ func NewRooms() *Rooms {
 	}
 }
 
+func (r *Rooms) Size() int {
+	return len(r.rooms)
+}
+
 func (r *Rooms) AddRoom(room *Room) bool {
 	if _, ok := r.rooms[room.InitiatorsPublicKey]; ok {
 		return false

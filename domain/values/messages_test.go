@@ -20,7 +20,7 @@ func TestClientAuthMessage_ContainsSubProtocol(t *testing.T) {
 
 func TestNewServerAuthMessage(t *testing.T) {
 	cookie := Cookie{0x1, 0x2}
-	responderAddresses := []int{2}
+	responderAddresses := []Address{2}
 	outgoingSessionPublicKey := Key{0x1}
 	clientPermanentPublicKey := Key{0x2}
 	serverPermanentPrivateKey := Key{0x3}
@@ -39,6 +39,7 @@ func TestNewServerAuthMessage(t *testing.T) {
 	signedKeys = append(signedKeys, outgoingSessionPublicKey[:]...)
 	signedKeys = append(signedKeys, clientPermanentPublicKey[:]...)
 	signedKeys = box.Seal(nil, signedKeys, &nonceBytes, &peersPublicKeyBytes, &privateKeyBytes)
+	initiatorConnect := false
 
 	serverAuthMessage := NewServerAuthMessage(
 		cookie,
@@ -46,8 +47,8 @@ func TestNewServerAuthMessage(t *testing.T) {
 		clientPermanentPublicKey,
 		serverPermanentPrivateKey,
 		nonce,
-		false,
-		responderAddresses,
+		&initiatorConnect,
+		&responderAddresses,
 	)
 	assert.Equal(
 		t,
@@ -57,8 +58,8 @@ func TestNewServerAuthMessage(t *testing.T) {
 			},
 			YourCookie:         cookie,
 			SignedKeys:         signedKeys,
-			InitiatorConnected: false,
-			Responders:         responderAddresses,
+			InitiatorConnected: &initiatorConnect,
+			Responders:         &responderAddresses,
 		},
 		serverAuthMessage,
 	)

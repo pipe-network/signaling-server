@@ -11,12 +11,12 @@ import (
 
 type SignalingController struct {
 	upgrader        websocket.Upgrader
-	saltyRTCService *services.SaltyRTCService
+	saltyRTCService *services.SaltyRTCServiceImpl
 }
 
 func NewSignalingController(
 	upgrader websocket.Upgrader,
-	saltyRTCService *services.SaltyRTCService,
+	saltyRTCService *services.SaltyRTCServiceImpl,
 ) SignalingController {
 	return SignalingController{
 		upgrader:        upgrader,

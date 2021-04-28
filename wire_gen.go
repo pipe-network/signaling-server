@@ -9,7 +9,9 @@ import (
 	"github.com/google/wire"
 	"github.com/pipe-network/signaling-server/application"
 	"github.com/pipe-network/signaling-server/application/services"
+	"github.com/pipe-network/signaling-server/infrastructure/database/repositories"
 	"github.com/pipe-network/signaling-server/infrastructure/providers"
+	services2 "github.com/pipe-network/signaling-server/infrastructure/services"
 	"github.com/pipe-network/signaling-server/infrastructure/storages"
 	"github.com/pipe-network/signaling-server/interface/controllers"
 )
@@ -17,17 +19,23 @@ import (
 // Injectors from wire.go:
 
 func InitializeMainApplication() (application.MainApplication, error) {
+	flagService := services.NewFlagServiceImpl()
 	upgrader := providers.ProvideUpgrader()
-	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter()
+	keyPairLocalStorageAdapter, err := storages.NewKeyPairLocalStorageAdapter(flagService)
 	if err != nil {
 		return application.MainApplication{}, err
 	}
-	saltyRTCService := services.NewSaltyRTCService(keyPairLocalStorageAdapter)
-	signalingController := controllers.NewSignalingController(upgrader, saltyRTCService)
-	mainApplication := application.NewMainApplication(signalingController)
+	notificationService := services2.NewFCMNotificationService(flagService)
+	db := providers.DatabaseProvider()
+	deviceTokenRepository := repositories.NewDeviceTokenDatabaseRepository(db)
+	saltyRTCServiceImpl := services.NewSaltyRTCServiceImpl(keyPairLocalStorageAdapter, notificationService, deviceTokenRepository)
+	signalingController := controllers.NewSignalingController(upgrader, saltyRTCServiceImpl)
+	addDeviceService := services.NewAddDeviceServiceImpl(keyPairLocalStorageAdapter, deviceTokenRepository)
+	addDeviceController := controllers.NewAddDeviceController(upgrader, addDeviceService)
+	mainApplication := application.NewMainApplication(flagService, signalingController, addDeviceController)
 	return mainApplication, nil
 }
 
 // wire.go:
 
-var Providers = wire.NewSet(providers.ProvideUpgrader)
+var Providers = wire.NewSet(providers.ProvideUpgrader, providers.DatabaseProvider)

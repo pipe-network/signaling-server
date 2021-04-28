@@ -20,31 +20,40 @@ var (
 	NoRoomInitiated     = errors.New("no room was initiated")
 )
 
-type ISaltyRTCService interface {
+type SaltyRTCService interface {
 	OnClientConnect(initiatorsPublicKey values.Key, connection *websocket.Conn) (*models.Client, error)
 	OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error
 }
 
-type SaltyRTCService struct {
+type SaltyRTCServiceImpl struct {
 	rooms *models.Rooms
 
-	keyPairStorage ports.KeyPairStoragePort
+	keyPairStorage        ports.KeyPairStorage
+	notificationService   ports.NotificationService
+	deviceTokenRepository ports.DeviceTokenRepository
 }
 
-func NewSaltyRTCService(
-	keyPairStorage ports.KeyPairStoragePort,
-) *SaltyRTCService {
-	return &SaltyRTCService{
-		rooms:          models.NewRooms(),
-		keyPairStorage: keyPairStorage,
+func NewSaltyRTCServiceImpl(
+	keyPairStorage ports.KeyPairStorage,
+	notificationService ports.NotificationService,
+	deviceTokenRepository ports.DeviceTokenRepository,
+) *SaltyRTCServiceImpl {
+	return &SaltyRTCServiceImpl{
+		rooms:                 models.NewRooms(),
+		keyPairStorage:        keyPairStorage,
+		notificationService:   notificationService,
+		deviceTokenRepository: deviceTokenRepository,
 	}
 }
 
-func (s *SaltyRTCService) OnClientConnect(
+func (s *SaltyRTCServiceImpl) OnClientConnect(
 	initiatorsPublicKey values.Key,
 	connection *websocket.Conn,
 ) (*models.Client, error) {
 	room := s.rooms.GetOrCreateRoom(initiatorsPublicKey)
+
+	log.Infof("Rooms: %d", s.rooms.Size())
+
 	client, err := models.NewClient(connection, room)
 	if err != nil {
 		_ = connection.Close()
@@ -76,7 +85,7 @@ func (s *SaltyRTCService) OnClientConnect(
 	return client, nil
 }
 
-func (s *SaltyRTCService) ReadMessageLoop(initiatorsPublicKey values.Key, client *models.Client) {
+func (s *SaltyRTCServiceImpl) ReadMessageLoop(initiatorsPublicKey values.Key, client *models.Client) {
 	room := s.rooms.GetOrCreateRoom(initiatorsPublicKey)
 
 	for {
@@ -106,7 +115,7 @@ func (s *SaltyRTCService) ReadMessageLoop(initiatorsPublicKey values.Key, client
 	}
 }
 
-func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error {
+func (s *SaltyRTCServiceImpl) OnMessage(initiatorsPublicKey values.Key, client *models.Client, message []byte) error {
 	nonce, dataBytes, err := s.splitMessage(message)
 	if err != nil {
 		return err
@@ -198,7 +207,7 @@ func (s *SaltyRTCService) OnMessage(initiatorsPublicKey values.Key, client *mode
 	return nil
 }
 
-func (s *SaltyRTCService) cleanup(client *models.Client, room *models.Room) {
+func (s *SaltyRTCServiceImpl) cleanup(client *models.Client, room *models.Room) {
 	log.Debug("Cleanup after close of: ", client.Address)
 	s.broadcastDisconnected(room, client)
 	if client.IsResponder() {
@@ -208,7 +217,7 @@ func (s *SaltyRTCService) cleanup(client *models.Client, room *models.Room) {
 	client.Flush()
 }
 
-func (s *SaltyRTCService) splitMessage(message []byte) (values.Nonce, []byte, error) {
+func (s *SaltyRTCServiceImpl) splitMessage(message []byte) (values.Nonce, []byte, error) {
 	messageLength := len(message)
 	if messageLength < models.SignalingMessageMinByteLength {
 		return values.Nonce{}, nil, errors.New(fmt.Sprintf("message too short %v bytes", messageLength))
@@ -223,7 +232,7 @@ func (s *SaltyRTCService) splitMessage(message []byte) (values.Nonce, []byte, er
 	return nonce, dataBytes, nil
 }
 
-func (s *SaltyRTCService) onClientAuthMessage(
+func (s *SaltyRTCServiceImpl) onClientAuthMessage(
 	client *models.Client,
 	room *models.Room,
 	clientAuthMessage values.ClientAuthMessage,
@@ -291,6 +300,25 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	} else {
 		initiatorConnectedTemp := room.Initiator() != nil
 		initiatorConnected = &initiatorConnectedTemp
+		if room.Initiator() == nil {
+			device, err := s.deviceTokenRepository.DeviceByPublicKey(room.InitiatorsPublicKey.HexString())
+			if err != nil {
+				return err
+			}
+
+			err = s.notificationService.Notify(
+				"Pipe Network is syncing",
+				"Pipe Network is syncing for you",
+				map[string]string{
+					"type":      "wakeup",
+					"publicKey": client.PermanentPublicKey.HexString(),
+				},
+				device.Token,
+			)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 
 	serverAuthMessage := values.NewServerAuthMessage(
@@ -318,15 +346,16 @@ func (s *SaltyRTCService) onClientAuthMessage(
 	return nil
 }
 
-func (s *SaltyRTCService) onClientHelloMessage(
+func (s *SaltyRTCServiceImpl) onClientHelloMessage(
 	client *models.Client,
 	clientHelloMessage values.ClientHelloMessage,
 ) error {
+	log.Infof("Setting client permanent public key: %s", clientHelloMessage.Key.HexString())
 	client.SetPermanentPublicKey(clientHelloMessage.Key)
 	return nil
 }
 
-func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error {
+func (s *SaltyRTCServiceImpl) broadcastNewInitiatorMessage(room *models.Room) error {
 	newInitiatorMessage := values.NewNewInitiatorMessage()
 	responders := room.Responders()
 
@@ -344,7 +373,7 @@ func (s *SaltyRTCService) broadcastNewInitiatorMessage(room *models.Room) error 
 	return nil
 }
 
-func (s *SaltyRTCService) onDropResponderMessage(
+func (s *SaltyRTCServiceImpl) onDropResponderMessage(
 	dropResponderMessage values.DropResponderMessage,
 	room *models.Room,
 ) error {
@@ -361,7 +390,7 @@ func (s *SaltyRTCService) onDropResponderMessage(
 	return nil
 }
 
-func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
+func (s *SaltyRTCServiceImpl) broadcastNewResponderMessage(responderClient *models.Client, room *models.Room) error {
 	newResponderMessage := values.NewNewResponderMessage(responderClient.Address)
 	initiator := room.Initiator()
 	if initiator == nil {
@@ -382,7 +411,7 @@ func (s *SaltyRTCService) broadcastNewResponderMessage(responderClient *models.C
 	return nil
 }
 
-func (s *SaltyRTCService) broadcastDisconnected(room *models.Room, disconnectedClient *models.Client) {
+func (s *SaltyRTCServiceImpl) broadcastDisconnected(room *models.Room, disconnectedClient *models.Client) {
 	if disconnectedClient.IsAuthenticated() {
 		disconnectedMessage := values.NewDisconnectedMessage(disconnectedClient.Address)
 		if disconnectedClient.IsInitiator() {

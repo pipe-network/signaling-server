@@ -24,6 +24,11 @@ func TestDecodeHex_NotValid(t *testing.T) {
 	assert.Nil(t, actualKey)
 }
 
+func TestKey_HexString(t *testing.T) {
+	actualKey, _ := FromHex("55f9fb6377899b8fa6868db0cded3c96349d650a2622d803a4887104918f0227")
+	assert.Equal(t, actualKey.HexString(), "55f9fb6377899b8fa6868db0cded3c96349d650a2622d803a4887104918f0227")
+}
+
 func TestDecodeHex_Not32BytesLong(t *testing.T) {
 	actualKey, err := FromHex("55f9fb6377899b8fa6868db0cded3c96349d650a2622d803a4887104918f02271234")
 	assert.Error(t, err)

@@ -38,8 +38,8 @@ type ClientAuthMessage struct {
 
 type ServerAuthMessage struct {
 	Message
-	YourCookie         Cookie    `msgpack:"your_cookie"`
-	SignedKeys         []byte    `msgpack:"signed_keys"`
+	YourCookie         Cookie     `msgpack:"your_cookie"`
+	SignedKeys         []byte     `msgpack:"signed_keys"`
 	InitiatorConnected *bool      `msgpack:"initiator_connected,omitempty"`
 	Responders         *[]Address `msgpack:"responders"`
 }
@@ -69,6 +69,21 @@ type SendErrorMessage struct {
 	ID []byte `msgpack:"id"`
 }
 
+type AddDeviceRequestMessage struct {
+	Message
+}
+
+type AddDeviceControlMessage struct {
+	Message
+	UUID string `msgpack:"uuid"`
+}
+
+type AddDeviceSolvedMessage struct {
+	Message
+	UUID        string `msgpack:"uuid"`
+	DeviceToken string `msgpack:"device_token"`
+}
+
 func (m *Message) MessageType() MessageType {
 	return m.Type
 }
@@ -76,7 +91,7 @@ func (m *Message) MessageType() MessageType {
 func DecryptMessage(
 	data []byte,
 	nonce [NonceByteLength]byte,
-	publicKey,
+	publicKey Key,
 	privateKey Key,
 ) ([]byte, error) {
 	publicKeyBytes := publicKey.Bytes()
@@ -87,6 +102,17 @@ func DecryptMessage(
 		return nil, DecryptionFailed
 	}
 	return decodedDataBytes, nil
+}
+
+func EncryptMessage(
+	data []byte,
+	nonce [NonceByteLength]byte,
+	recipientPublicKey Key,
+	senderPrivateKey Key,
+) []byte {
+	recipientPublicKeyBytes := recipientPublicKey.Bytes()
+	senderPrivateKeyBytes := senderPrivateKey.Bytes()
+	return box.Seal(nil, data, &nonce, &recipientPublicKeyBytes, &senderPrivateKeyBytes)
 }
 
 func DecodeClientAuthMessageFromBytes(
@@ -134,10 +160,8 @@ func DecodeClientHelloMessageFromBytes(rawBytes []byte) (*ClientHelloMessage, er
 
 func NewServerHelloMessage(sessionPublicKey Key) ServerHelloMessage {
 	return ServerHelloMessage{
-		Message: Message{
-			Type: ServerHello,
-		},
-		Key: sessionPublicKey,
+		Message: Message{Type: ServerHello},
+		Key:     sessionPublicKey,
 	}
 }
 
@@ -159,9 +183,7 @@ func NewServerAuthMessage(
 	signedKeys = box.Seal(nil, signedKeys, &nonceBytes, &peersPublicKeyBytes, &privateKeyBytes)
 
 	return ServerAuthMessage{
-		Message: Message{
-			Type: ServerAuth,
-		},
+		Message:            Message{Type: ServerAuth},
 		YourCookie:         incomingCookie,
 		SignedKeys:         signedKeys,
 		InitiatorConnected: initiatorConnected,
@@ -182,12 +204,17 @@ func NewNewResponderMessage(responderAddress Address) NewResponderMessage {
 	}
 }
 
+func NewAddDeviceControlMessage(uuid string) AddDeviceControlMessage {
+	return AddDeviceControlMessage{
+		Message: Message{Type: AddDeviceControl},
+		UUID:    uuid,
+	}
+}
+
 func NewDisconnectedMessage(id Address) DisconnectedMessage {
 	return DisconnectedMessage{
-		Message: Message{
-			Type: Disconnected,
-		},
-		ID: id,
+		Message: Message{Type: Disconnected},
+		ID:      id,
 	}
 }
 
